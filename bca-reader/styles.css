@@ -1,0 +1,963 @@
+/* ============================================================================
+   BCA Reader — desktop stylesheet (light theme, on purpose)
+
+   This is the shipping desktop app restyled into the phone-mockup's VISUAL
+   LANGUAGE while dropping every phone ERGONOMIC (no 430px column, no 44px
+   touch targets, no sticky thumb-arc action bar, no 100dvh, no safe-area
+   insets, no phone frame). See docs/adr/0002-desktop-adopts-phone-design-
+   language.md and design/desktop-restyle-contract.md.
+
+   LIGHT THEME OVERRIDES the project's usual dark-mode default because this is
+   a colour-measurement instrument: a dark chrome around a plate photo biases
+   how a human judges that photo's colour.
+
+   SCIENCE CONSTRAINT — the `--stage` token (#e8e8ec): every colour-critical
+   surface (the plate canvas #plateCanvas, the well swatches, the standard-
+   curve plot #plotCanvas) sits on neutral gray/white and is NEVER tinted
+   purple. Purple (--brand) is confined to chrome, actions, and the standard
+   well role. This is non-negotiable.
+   ========================================================================= */
+
+/* ---------------------------------------------------------------- tokens -- */
+/* Ported wholesale from design/phone-mockup/styles.css. Only the phone-only
+   `--actionbar-h` token was dropped (there is no sticky action bar here). */
+:root {
+  /* Surfaces. Warm-neutral, never pure white, never pure black. */
+  --bg:          #f2f2f4;   /* the app behind the cards */
+  --surface:     #ffffff;   /* cards */
+  --surface-2:   #f7f7f9;   /* inset rows, tray */
+  --stage:       #e8e8ec;   /* NEUTRAL: only ever behind colour-critical art */
+  --line:        #e3e3e8;
+  --line-strong: #d2d2da;
+
+  /* Ink */
+  --ink:      #1c1c1f;      /* never #000: pure black vibrates */
+  --ink-2:    #55555e;
+  --ink-3:    #8a8a95;
+
+  /* One accent. Purple is earned, not decoration: the BCA assay literally
+     turns purple as protein rises. It is the product's own colour. */
+  --brand:       #7c5cff;
+  --brand-press: #6347e0;
+  --brand-soft:  #efebff;
+  --brand-ink:   #4b32b8;   /* purple that passes 4.5:1 on white */
+
+  /* Semantic states. Soft tint background + saturated same-hue text.
+     Warnings are AMBER (--caution), never red: a flagged read is not an
+     error, it is a read that needs a human. */
+  --ok:        #166534;
+  --ok-soft:   #dcfce7;
+  --caution:   #92400e;     /* amber, NOT red */
+  --caution-soft: #fef3c7;
+  --caution-line: #f0c675;
+
+  /* Well roles. Same three colours the real app already uses. */
+  --w-blank:    #7dd3fc;
+  --w-standard: #7c5cff;
+  --w-sample:   #4ade80;
+  --w-unused:   #b9b9c4;
+
+  /* Type. Inter for body; JetBrains Mono reserved for numerals a scientist
+     reads as data. Space Grotesk is gone. */
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* 4/8pt spacing scale */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+
+  --r-sm: 8px; --r: 12px; --r-lg: 16px; --r-xl: 22px; --r-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgba(20, 20, 30, 0.05);
+  --shadow-2: 0 6px 20px rgba(20, 20, 30, 0.08);
+
+  --t-fast: 140ms;
+  --t: 200ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in:  cubic-bezier(0.4, 0, 1, 1);
+
+  /* Desktop layout: a comfortable centred column, NOT a phone width. */
+  --page-max: 1100px;
+}
+
+/* ------------------------------------------------------------- baseline -- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.011em;
+}
+
+h1, h2, h3, p, ul, figure { margin: 0; }
+button, input, select { font: inherit; color: inherit; }
+
+/* Numerals that get read as data: mono + tabular so columns never dance.
+   Applied ONLY to numeric surfaces (concentrations, R², CV%, µg/mL cells,
+   the fit-line equation), never to prose or table headers. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.icon, .ic {
+  width: 18px; height: 18px; flex: 0 0 auto;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* Screen-reader-only + skip link */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.skip-link {
+  position: absolute; left: -999px; top: var(--s2);
+  z-index: 100;
+  background: var(--ink); color: #fff;
+  padding: var(--s2) var(--s3); border-radius: var(--r-sm);
+  font-weight: 600;
+}
+.skip-link:focus { left: var(--s3); }
+
+/* Focus rings are load-bearing accessibility. Never remove them. */
+:focus-visible {
+  outline: 2.5px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.ta-r { text-align: right; }
+
+/* ------------------------------------------------------------- layout ---- */
+/* One centred column on a comfortable desktop max-width. No phone frame. */
+main {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s6) var(--s5) var(--s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+/* ---------------------------------------------------------- site header -- */
+/* The animated SVG hero is gone (ADR 0002 / contract). What remains is a
+   plain, honest product title. Styled defensively in case the HTML agent
+   keeps a lightweight header block. */
+.site-header, .app-header {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s7) var(--s5) var(--s5);
+  text-align: left;
+}
+.eyebrow, .app-eyebrow {
+  margin: 0 0 var(--s2);
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--brand-ink);
+}
+.site-header h1, .app-header .app-title {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+.tagline, .app-tagline {
+  margin: var(--s4) 0 0;
+  max-width: 56ch;
+  font-size: 1.05rem;
+  color: var(--ink-2);
+}
+.chips {
+  display: flex; flex-wrap: wrap; gap: var(--s2);
+  list-style: none; margin: var(--s5) 0 0; padding: 0;
+}
+.chip {
+  font-size: 0.82rem; font-weight: 500;
+  color: var(--brand-ink);
+  background: var(--brand-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+}
+
+/* --------------------------------------------------------------- cards --- */
+/* The stepped flow. Each step is a card in one vertical column. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: var(--s5);
+  box-shadow: var(--shadow-1);
+  /* Breathing room where a snap-to-top LANDS, without moving the card in the
+     layout — that is exactly what scroll-margin-top is for, and why this is not
+     a margin. Every "Looks right" calls scrollIntoView({block:"start"}), which
+     otherwise parks the card flush against the viewport edge with the step
+     heading jammed into it.
+     Set on .card, not on one step: the wizard's rule is that every step lands in
+     the SAME on-screen spot (CONTEXT.md), so offsetting one card would be the
+     thing that breaks it. */
+  scroll-margin-top: var(--s5);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .card { animation: rise var(--t) var(--ease-out) both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+}
+
+.card h2 {
+  margin: 0 0 var(--s3);
+  font-size: 1.2rem; font-weight: 600; letter-spacing: -0.02em;
+  display: flex; align-items: center; gap: var(--s3);
+}
+.card h3 {
+  margin: 0 0 var(--s3);
+  font-size: 0.95rem; font-weight: 600; color: var(--ink);
+}
+
+/* The step number pip. Purple as chrome — fine, it backs no colour judgement. */
+.step-num {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+  font-family: var(--mono);
+  font-size: 0.85rem; font-weight: 500;
+}
+
+/* -------------------------------------------------------- text & rows ---- */
+.hint {
+  color: var(--ink-2);
+  font-size: 0.92rem;
+  margin: 0 0 var(--s4);
+  max-width: 70ch;
+}
+.hint strong { color: var(--ink); font-weight: 600; }
+.hint-inline { color: var(--ink-3); font-size: 0.85rem; }
+
+.disclaimer {
+  margin: var(--s5) 0 0;
+  border-top: 1px solid var(--line);
+  padding-top: var(--s4);
+  font-size: 0.82rem; line-height: 1.55;
+  color: var(--ink-3);
+  /* Overrides .hint's 70ch measure so the rule and the text run the full width
+     of the card rather than stopping short. */
+  max-width: none;
+}
+
+.row {
+  display: flex; flex-wrap: wrap;
+  gap: var(--s3); align-items: center;
+  margin: var(--s3) 0;
+}
+/* Step navigation sits at the bottom-right, so "Looks right" lands in the
+   easy-to-click corner with Back just beside it. */
+.row.actions { justify-content: flex-end; }
+
+/* Status text (e.g. #fileStatus, #cornerStatus). Numerals inside read as
+   data, so mono + tabular. */
+.status {
+  color: var(--ink-2);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+}
+/* A file that could not be read is amber (caution), never mistakable for a
+   normal "loaded" confirmation. */
+.status.status-error,
+.status.is-error {
+  color: var(--caution);
+  font-family: var(--font);
+  font-weight: 600;
+  max-width: 60ch;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------- buttons --- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--s2);
+  padding: 11px 20px;
+  border: 0; border-radius: var(--r-sm);
+  background: var(--brand); color: #fff;
+  font-size: 0.95rem; font-weight: 600; letter-spacing: -0.01em;
+  cursor: pointer;
+  box-shadow: var(--shadow-1);
+  transition: background var(--t-fast) var(--ease-out),
+              transform var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out);
+}
+.btn:hover { background: var(--brand-press); }
+.btn:active { transform: scale(0.98); background: var(--brand-press); }
+
+/* A file-input <label> styled as a button gets the same affordance. */
+label.btn { cursor: pointer; }
+
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+.btn-secondary:hover { background: var(--line); color: var(--ink); }
+.btn-secondary:active { transform: scale(0.98); background: var(--line); }
+
+/* In-place feedback instead of a toast: app.js swaps the button's own label
+   and (optionally) toggles a state class. The feedback lands where the finger
+   already is. Export CSV becomes "Exported.", etc. */
+.btn.is-done, .btn-secondary.is-done {
+  background: var(--ok-soft);
+  color: var(--ok);
+  border-color: transparent;
+}
+.btn.is-busy, .btn-secondary.is-busy {
+  opacity: 0.7; pointer-events: none;
+}
+.btn:disabled, .btn-secondary:disabled {
+  opacity: 0.5; cursor: not-allowed; transform: none;
+}
+
+/* -------------------------------------------------------- inputs/select -- */
+label {
+  font-size: 0.92rem; color: var(--ink);
+  display: inline-flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+}
+
+input[type="number"],
+input[type="text"],
+select {
+  min-height: 42px;
+  padding: 0 var(--s3);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  font-family: var(--font);
+  font-size: 0.95rem;
+}
+/* A numeric field IS data: mono + tabular. */
+input[type="number"] {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  max-width: 140px;
+}
+input:focus-visible, select:focus-visible {
+  border-color: var(--brand);
+  outline: 2.5px solid var(--brand);
+  outline-offset: 0;
+}
+
+.brush-input { align-items: center; }
+
+/* --------------------------------------------------------- the stage ----- */
+/* SCIENCE CONSTRAINT. The plate photo is colour-critical, so its surround is
+   a fixed neutral gray. No purple wash, no gradient, nothing that could bias
+   the eye judging a purple well. */
+.canvas-wrap, .stage {
+  width: 100%;
+  overflow: auto;
+  background: var(--stage);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  padding: var(--s3);
+}
+#plateCanvas {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  border-radius: var(--r-sm);
+  cursor: crosshair;
+}
+
+/* --------------------------------------------------------- stepped flow -- */
+/* A completed step collapses to a one-line confirmation header: green check +
+   title on the left, a summary (e.g. the filename) + delete X on the right.
+   The next step is scrolled to the top of the viewport by app.js. */
+.step-head {
+  display: flex; align-items: center; gap: var(--s3);
+  justify-content: space-between;
+}
+.step-head h2 { margin: 0; }
+/* A hair of breathing room between the step heading and its body, so the grid
+   step's verdict banner doesn't touch the step number. */
+.step-body { margin-top: var(--s3); }
+.step-summary { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+.card:not(.is-done) .step-summary { display: none; }  /* summary only when collapsed */
+.step-file {
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 0.88rem; color: var(--ink-2);
+  max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.step-x {
+  display: inline-grid; place-items: center;
+  width: 28px; height: 28px; flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: var(--surface); color: var(--ink-2);
+  font-size: 1.25rem; line-height: 1; cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              border-color var(--t-fast) var(--ease-out);
+}
+.step-x:hover {
+  background: var(--caution-soft); color: var(--caution);
+  border-color: var(--caution-line);
+}
+
+/* Collapsed state: hide the body, tighten the card, turn the step number into a
+   green check so a glance up the page reads as "these are done". */
+.card.is-done .step-body { display: none; }
+.card.is-done { padding-top: var(--s4); padding-bottom: var(--s4); }
+.card.is-done .step-num { background: var(--ok-soft); color: var(--ok); font-size: 0; }
+.card.is-done .step-num::after { content: "✓"; font-size: 0.95rem; font-family: var(--font); }
+/* A collapsed grid step invites a click to reopen (Load uses its X instead). */
+.card.is-done #gridHead { cursor: pointer; }
+
+/* A subtle but noticeable transition when the workspace advances a phase: the
+   card rings briefly in brand purple, the step badge pops, and the banner slides
+   in. Zeroed automatically under prefers-reduced-motion (motion tokens). */
+@keyframes phase-ring {
+  0%   { box-shadow: var(--shadow-1), 0 0 0 0 rgba(124, 92, 255, 0); }
+  35%  { box-shadow: var(--shadow-1), 0 0 0 3px rgba(124, 92, 255, 0.4); }
+  100% { box-shadow: var(--shadow-1), 0 0 0 0 rgba(124, 92, 255, 0); }
+}
+@keyframes badge-pop {
+  0% { transform: scale(1); } 45% { transform: scale(1.22); } 100% { transform: scale(1); }
+}
+.card.phase-flash { animation: phase-ring 650ms var(--ease-out); }
+.card.phase-flash .step-num { animation: badge-pop 500ms var(--ease-out); }
+.card.phase-flash .verdict { animation: tray-in 320ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .card.phase-flash,
+  .card.phase-flash .step-num,
+  .card.phase-flash .verdict { animation: none; }
+}
+
+/* -------------------------------------------------------- source tabs --- */
+/* Step 1 has two ways in: photograph the plate, or paste what the plate reader
+   already measured. Tabs and not two stacked panels, because they are genuinely
+   exclusive — a plate arrives one way or the other, never both — and stacking
+   them would imply you could do both and make Step 1 twice as tall.
+   The active tab carries the brand purple; the rest stays quiet. */
+.source-tabs {
+  display: flex;
+  gap: var(--s1);
+  padding: var(--s1);
+  margin-bottom: var(--s4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.source-tab {
+  flex: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--s2);
+  padding: 10px var(--s3);
+  border: 0; border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font);
+  font-size: 0.92rem; font-weight: 600; letter-spacing: -0.01em;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out),
+              box-shadow var(--t-fast) var(--ease-out);
+}
+.source-tab .ic {
+  width: 17px; height: 17px;
+  fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.source-tab:hover { color: var(--ink); background: rgba(0, 0, 0, 0.03); }
+.source-tab.is-active {
+  background: var(--surface);
+  color: var(--brand-ink);
+  box-shadow: var(--shadow-1);
+}
+.source-tab:focus-visible {
+  outline: 2.5px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* --------------------------------------------------------- paste box --- */
+/* Mono + tabular: what lands in here is a grid of numbers pulled off a
+   spreadsheet, and it should look like the columns it came from. nowrap +
+   overflow-x keeps a 12-column paste from soft-wrapping into visual nonsense
+   that looks like it parsed wrong when it didn't. */
+.paste-box {
+  display: block;
+  width: 100%;
+  padding: var(--s3);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  line-height: 1.7;
+  white-space: pre;
+  overflow-x: auto;
+  resize: vertical;
+  transition: border-color var(--t-fast) var(--ease-out),
+              background var(--t-fast) var(--ease-out);
+}
+.paste-box::placeholder { color: var(--ink-3); }
+.paste-box:hover { border-color: var(--brand); }
+.paste-box:focus {
+  border-color: var(--brand);
+  background: var(--surface);
+  outline: 2.5px solid var(--brand);
+  outline-offset: 2px;
+}
+/* A successful parse reports what it dropped and what it read. Green, quiet,
+   and wrapping — it is prose about your data, not a number. */
+.status.is-ok {
+  color: var(--ok);
+  font-family: var(--font);
+  font-weight: 500;
+  max-width: 70ch;
+  line-height: 1.5;
+}
+
+/* ------------------------------------------------------------ dropzone --- */
+/* The load step's focal point: a generous drag-and-drop target instead of a
+   lone button in an empty card. Dashed border reads as "drop here"; it lights
+   up on hover and while a file is dragged over it. */
+.dropzone {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--s2);
+  padding: var(--s8) var(--s5);
+  text-align: center;
+  background: var(--surface-2);
+  border: 2px dashed var(--line-strong);
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  transition: border-color var(--t) var(--ease-out),
+              background var(--t) var(--ease-out);
+}
+.dropzone:hover,
+.dropzone.is-drag {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.dropzone:focus-within {
+  border-color: var(--brand);
+  outline: 2.5px solid var(--brand);
+  outline-offset: 2px;
+}
+.dropzone-ic {
+  width: 44px; height: 44px;
+  fill: none; stroke: var(--brand); stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+  margin-bottom: var(--s2);
+}
+.dropzone-title { font-size: 1.1rem; font-weight: 600; color: var(--ink); }
+.dropzone-sub   { font-size: 0.9rem; color: var(--ink-3); max-width: 44ch; }
+
+/* --------------------------------------------------------- row fields ---- */
+/* One field per plate ROW, shared by the ladder (a concentration) and the
+   samples (a name). Built by app.js from whatever wells you selected; wells
+   sharing a row are replicates. */
+.row-fields {
+  display: flex; flex-direction: column; gap: var(--s2);
+  margin: var(--s4) 0 0;
+  padding: var(--s4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+.row-fields[hidden] { display: none; }
+.row-field {
+  display: flex; align-items: center; gap: var(--s3);
+}
+.row-field-label {
+  font-weight: 600; font-size: 0.9rem;
+  min-width: 5.5ch;
+}
+.row-field .hint-inline { flex: 1 1 auto; }
+.row-input {
+  min-height: 38px;
+  width: 150px; flex: 0 0 auto;
+  padding: 0 var(--s3);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  font-family: var(--font);
+  font-size: 0.95rem;
+}
+/* A concentration IS data: mono + tabular figures. */
+.row-input.is-conc {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+.row-input:focus-visible {
+  border-color: var(--brand);
+  outline: 2.5px solid var(--brand);
+  outline-offset: 0;
+}
+/* An empty row is the thing standing between you and a curve — flag it amber. */
+.row-input:placeholder-shown {
+  border-color: var(--caution-line);
+  background: var(--caution-soft);
+}
+
+/* ----------------------------------------------------------- brush bar --- */
+.brush-bar {
+  display: flex; flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s2) 0 var(--s4);
+}
+.brush {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--s2);
+  padding: 9px 16px;
+  background: var(--surface);
+  color: var(--ink-2);
+  border: 1.5px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 0.88rem; font-weight: 500;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-out),
+              background var(--t-fast) var(--ease-out),
+              color var(--t-fast) var(--ease-out);
+}
+.brush:hover { color: var(--ink); border-color: var(--line-strong); }
+/* app.js may toggle either `.active` (current) or `.is-on` (mockup) — style
+   both so the active brush always reads. */
+.brush.active, .brush.is-on {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Colour-key dots inside brush buttons. These mirror the canvas role colours.
+   They are role LEGENDS (chrome), not a colour the user judges, so tinting is
+   fine here. */
+.brush-dot {
+  width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+.dot-blank    { background: var(--w-blank); }
+.dot-standard { background: var(--w-standard); }
+.dot-sample   { background: var(--w-sample); }
+.dot-clear    { background: transparent; border: 1.5px dashed var(--ink-3); }
+
+/* ------------------------------------------------------- confirm-grid ---- */
+/* The verdict banner (#gridVerdict): the happy path is read this, glance at
+   the plate, click "Looks right". Green by default; brand purple once the
+   user has adjusted (a change applies to this run only). */
+#gridVerdict, .verdict {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  background: var(--surface-2); color: var(--ink-2);
+  border-radius: var(--r);
+  font-size: 0.95rem;
+  margin: 0 0 var(--s4);
+}
+#gridVerdict strong, .verdict strong { font-weight: 700; }
+/* Banner colour tracks the flag so they never disagree: amber while setup is
+   pending, green once the grid is placed, purple after a manual adjustment. */
+#gridVerdict.is-setup, .verdict.is-setup {
+  background: var(--caution-soft); color: var(--caution);
+}
+#gridVerdict.is-found, .verdict.is-found {
+  background: var(--ok-soft); color: var(--ok);
+}
+#gridVerdict.is-adjusted, .verdict.is-adjusted {
+  background: var(--brand-soft); color: var(--brand-ink);
+}
+/* A leading glyph so the verdict is not carried by colour alone. */
+#gridVerdict .icon, .verdict .icon, #gridVerdict .ic, .verdict .ic { color: currentColor; }
+.verdict-text { color: inherit; }
+
+/* Primary "Looks right" advance button — inherits .btn. Kept as its own hook
+   in case app.js styles it distinctly. */
+#confirmGridBtn { /* inherits .btn */ }
+
+/* The adjust tray: progressive disclosure. The controls exist but never tax
+   the run where detection was already right.
+   #adjustToggle = the clickable header; #adjustTray = the collapsible body
+   (collapsed via the `hidden` attribute). */
+#adjustToggle {
+  display: flex; align-items: center; gap: var(--s3);
+  width: 100%;
+  padding: var(--s3) var(--s4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  color: var(--ink);
+  font-size: 0.92rem; font-weight: 600;
+  cursor: pointer; text-align: left;
+  transition: background var(--t-fast) var(--ease-out);
+}
+#adjustToggle:hover { background: var(--line); }
+/* Chevron (if the HTML agent includes one) rotates when the tray is open. */
+#adjustToggle .chev,
+#adjustToggle .icon-chev { margin-left: auto; transition: transform var(--t) var(--ease-out); }
+#adjustToggle[aria-expanded="true"] .chev,
+#adjustToggle[aria-expanded="true"] .icon-chev { transform: rotate(180deg); }
+
+#adjustTray {
+  margin-top: var(--s2);
+  padding: var(--s4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+#adjustTray[hidden] { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  #adjustTray:not([hidden]) { animation: tray-in var(--t) var(--ease-out) both; }
+  @keyframes tray-in { from { opacity: 0; transform: translateY(-6px); } }
+}
+
+/* Nudge d-pad: small square buttons for shifting/resizing the whole grid. */
+.nudge-controls { gap: var(--s2); }
+.btn-nudge {
+  min-width: 40px;
+  padding: 8px 0;
+  font-size: 1rem; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tray sections (corner-marking, then tagging) stack inside #adjustTray; a hair
+   of separation keeps the two groups legible. */
+.tray-section + .tray-section {
+  margin-top: var(--s2);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+
+/* --------------------------------------------------------- results grid -- */
+/* Plot and table SIDE BY SIDE on desktop; they stack on narrow widths. */
+.results-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--s5);
+  align-items: start;
+}
+.plot-wrap, .table-wrap, .stage-plot, .table-block { min-width: 0; }
+
+/* SCIENCE CONSTRAINT. The standard-curve plot is colour-critical: it sits on
+   neutral white with a neutral border, NEVER a dark or tinted panel. (The old
+   desktop build put it on #171c28 — that biased the read and is removed.) */
+#plotCanvas {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+}
+
+/* The fit-line equation is numeric data → mono. */
+.fit-line, #fitLine {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  color: var(--ink-2);
+  text-align: center;
+  margin: var(--s3) 0 0;
+}
+
+/* --------------------------------------------------------- results table - */
+.table-scroll { overflow-x: auto; }
+
+/* Shared across BOTH result tables (#ladderTable and #resultsTable). These were
+   once scoped to #resultsTable alone, which left the ladder table unstyled and
+   collapsed to its text width. Style the CLASS; scope to an id only for what is
+   genuinely one table's own. */
+.results {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.results th, .results td {
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+/* Header row. DELIBERATELY NOT uppercased: CSS `text-transform: uppercase`
+   maps the micro sign "µ" onto Greek capital Mu "Μ" (indistinguishable from
+   Latin "M"), so "Conc. (µg/mL)" would silently read as milligrams — a 1000x
+   lie. Units are case-sensitive; the phone mockup's uppercase thead rule was
+   NOT ported for exactly this reason. */
+.results thead th {
+  font-size: 0.78rem; font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+}
+.results thead th.ta-r { text-align: right; }
+/* A BODY cell opts into right-alignment with the SAME class its header uses, so
+   a column cannot end up with a right-aligned title over left-aligned numbers
+   (which is what happened to Step 8's table). Needs `.results td` specificity to
+   beat the left-align default above; the bare `.ta-r` utility loses to it.
+   Prefer this over nth-child alignment rules — those silently mis-target the
+   moment a column is inserted. */
+.results td.ta-r { text-align: right; }
+/* Numerals a scientist reads as DATA are mono + tabular, per the UI identity in
+   CONTEXT.md: proportional digits shimmy between rows and stop the eye trusting
+   a column. Generalised here so any `.results` table gets it by tagging a cell,
+   rather than each new table re-deriving its own nth-child list. */
+.results td.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.results tbody tr + tr th,
+.results tbody tr + tr td { border-top: 1px solid var(--line); }
+.results tbody tr { transition: background var(--t-fast) var(--ease-out); }
+.results tbody tr:hover { background: var(--surface-2); }
+
+/* Mono + right-alignment for this table's numeric columns (2 n · 3 Signal ·
+   4 Conc.) now come from the `ta-r num` classes app.js puts on the cells, via
+   the general `.results td.ta-r` / `.results td.num` rules above — the same
+   contract Step 8's table uses, so the two tables match and neither can drift
+   from its own headers.
+   The nth-child list that used to live here did the mono but not the alignment,
+   which left right-aligned titles sitting over left-aligned numbers. */
+
+/* The ladder table is numbers end to end — Rung is a concentration, not a label
+   — so every column is mono. app.js emits bare <td>s, so the right-alignment of
+   columns 2-5 lives here rather than on a class, matching their `.ta-r` heads.
+   Equal column widths: five numeric columns of similar magnitude read as a grid
+   only if the eye can trust the gaps, and `auto` layout would size them by their
+   longest string instead. */
+#ladderTable { table-layout: fixed; }
+#ladderTable th, #ladderTable td {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  width: 20%;
+}
+#ladderTable thead th {
+  font-family: var(--font);
+}
+#ladderTable td:nth-child(n+2) { text-align: right; }
+/* Colour only: n and Signal are supporting numbers, dimmed so Conc. carries the
+   row. The `text-align: center` that used to sit on n is deliberately gone — it
+   was a considered choice, but it put a centred column under a right-aligned
+   header and stopped Steps 7 and 8 matching. Alignment is the classes' job now. */
+#resultsTable td:nth-child(2) { color: var(--ink-3); }
+#resultsTable td:nth-child(3) { color: var(--ink-2); }
+/* The concentration is the answer: green + heavy. */
+#resultsTable td:nth-child(4), #resultsTable td .conc {
+  color: var(--ok); font-weight: 700;
+}
+#resultsTable td:nth-child(5) { font-size: 0.85rem; }
+
+/* A flagged row: amber wash + an inset left rule, so the flag survives even in
+   greyscale. app.js may use `.row-flag` (current) or `.is-flagged` (mockup). */
+#resultsTable tbody tr.row-flag,
+#resultsTable tbody tr.is-flagged {
+  background: color-mix(in srgb, var(--caution-soft) 55%, transparent);
+}
+#resultsTable tbody tr.row-flag:hover,
+#resultsTable tbody tr.is-flagged:hover {
+  background: color-mix(in srgb, var(--caution-soft) 70%, transparent);
+}
+#resultsTable tbody tr.row-flag td:first-child,
+#resultsTable tbody tr.is-flagged td:first-child,
+#resultsTable tbody tr.row-flag th:first-child,
+#resultsTable tbody tr.is-flagged th:first-child {
+  box-shadow: inset 3px 0 0 var(--caution-line);
+}
+#resultsTable tbody tr.row-flag td:nth-child(4),
+#resultsTable tbody tr.is-flagged td:nth-child(4) { color: var(--caution); }
+
+/* ------------------------------------------------------------ flag/pill -- */
+/* Status never rides on colour alone: SHAPE + WORD + COLOUR. The caution flag
+   carries a DIAMOND (a rotated square), so it survives greyscale and colour
+   blindness. Style both the mockup `.flag` family and the current
+   `.status-ok`/`.status-warn` spans defensively. */
+.flag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.78rem; font-weight: 600;
+  padding: 3px var(--s2); border-radius: var(--r-pill);
+}
+.flag i {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor; flex: none;
+}
+.flag-ok { background: var(--ok-soft); color: var(--ok); }
+.flag-caution { background: var(--caution-soft); color: var(--caution); }
+.flag-caution i { border-radius: 1px; transform: rotate(45deg); } /* diamond ≠ dot */
+
+.status-ok { color: var(--ok); font-weight: 600; }
+.status-warn { color: var(--caution); font-weight: 600; }
+
+/* ------------------------------------------------------------ warnings --- */
+/* Trust warnings (#warnings, role=alert). AMBER, never red: nothing failed, a
+   human is needed. Flagged in three places for one issue (this panel, the row
+   wash, the status flag). */
+#warnings, .warnings {
+  margin: 0 0 var(--s4);
+  padding: var(--s3) var(--s4);
+  background: var(--caution-soft);
+  border: 1px solid var(--caution-line);
+  border-left-width: 3px;
+  border-radius: var(--r);
+  color: var(--caution);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+#warnings[hidden], .warnings[hidden] { display: none; }
+#warnings strong, .warnings strong { color: var(--caution); font-weight: 700; }
+#warnings ul, .warnings ul { margin: var(--s2) 0 0; padding-left: 1.2em; }
+#warnings li, .warnings li { margin: 4px 0; }
+
+/* -------------------------------------------------------------- footer --- */
+.site-footer, .app-footer {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s5) var(--s5) var(--s7);
+  text-align: center;
+}
+.site-footer p, .app-footer p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+/* ----------------------------------------------------------- responsive -- */
+/* The results plot + table stack on narrow desktop widths; nothing ever
+   scrolls the page horizontally. */
+@media (max-width: 860px) {
+  .results-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 620px) {
+  main { padding: var(--s5) var(--s4) var(--s7); }
+  .card { padding: var(--s4); }
+  .site-header, .app-header { padding: var(--s5) var(--s4) var(--s4); }
+  .brush { flex: 1 1 auto; }
+}
+
+/* ------------------------------------------------------- reduced motion -- */
+/* Zero the motion tokens so the whole system goes still at once. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --t-fast: 0.01ms; --t: 0.01ms; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

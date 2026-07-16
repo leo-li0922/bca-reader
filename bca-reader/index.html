@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Color-measurement instrument: light theme is the documented exception to
+       dark-mode default (ADR 0002). Chrome must stay neutral around the photo. -->
+  <meta name="color-scheme" content="light" />
+  <title>BCA Reader — Mobile Blot</title>
+
+  <!-- Two typefaces only. Inter for everything; JetBrains Mono is reserved for
+       numerals that get read as data (concentrations, R², CV%, µg/mL).
+       Space Grotesk is gone (ADR 0002). -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Keyboard users can jump straight to the workflow -->
+  <a class="skip-link" href="#workflow">Skip to the reader</a>
+
+  <!-- ===== Header ===== -->
+  <header class="app-header">
+    <p class="app-eyebrow">Mobile Blot</p>
+    <h1 class="app-title">BCA Reader</h1>
+    <p class="app-tagline">
+      Turn a 96-well BCA plate into protein concentrations and a gel loading plan
+      — from your plate reader's readings, or a phone photo.
+    </p>
+  </header>
+
+  <main id="workflow">
+
+    <!-- ===== Step 1: Load a plate =====
+         TWO SOURCES, ONE WIZARD. A photo needs its pixels sampled; a plate reader
+         has already done the measuring and its OD *is* the signal. Both end at a
+         well carrying a `signal`, so Steps 3–8 are shared and know nothing about
+         which path ran. The ONLY thing the photo path adds is Step 2's corner
+         marking — a pasted grid has no parallax, so row 3 / column 4 simply IS
+         well C4 and the corners step collapses to a confirmation.
+         See core/import.js and CONTEXT.md → "the OD path". -->
+    <section class="card" id="loadCard">
+      <div class="step-head">
+        <h2><span class="step-num">1</span> Load a plate</h2>
+        <!-- Shown only once a plate is loaded; the step collapses to this line. -->
+        <div class="step-summary" id="loadSummary" hidden>
+          <span class="step-file" id="loadedName"></span>
+          <button class="step-x" id="clearPhotoBtn" type="button" aria-label="Remove this plate and load a different one">×</button>
+        </div>
+      </div>
+      <div class="step-body">
+
+        <!-- PLATE READER DATA IS THE DEFAULT (2026-07-16), and the order here is
+             the recommendation: the first tab is the one to use. That is not a
+             preference, it is what the data says. The OD path carries the
+             INSTRUMENT's accuracy; the photo path reads ~5% high against the
+             corrected truth with one sample off 14% on a lighting gradient, and
+             will stay that way until the hardware light box exists.
+             CONTEXT.md → "RESOLVED 2026-07-16". Revisit this order when the light
+             box lands and the photo path has been re-measured. -->
+        <div class="source-tabs" role="tablist" aria-label="Where the readings come from">
+          <button class="source-tab is-active" id="tabPaste" type="button" role="tab" aria-selected="true" aria-controls="panelPaste">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M8 12h8M8 16h5"/></svg>
+            Plate reader data
+          </button>
+          <button class="source-tab" id="tabPhoto" type="button" role="tab" aria-selected="false" aria-controls="panelPhoto">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.2"/></svg>
+            Plate photo
+          </button>
+        </div>
+
+        <!-- The paste path. Deliberately a paste and not a file drop: a real
+             instrument workbook holds the raw export, a hand-built analysis block
+             and a chart on one sheet, so reading a file means GUESSING which
+             rectangle is the plate — and a wrong guess is silent. Your selection
+             is the answer. See core/import.js. -->
+        <div id="panelPaste" role="tabpanel" aria-labelledby="tabPaste">
+          <p class="hint">
+            <strong>The accurate path.</strong> In your spreadsheet, select just
+            the block of OD readings — one cell per well, laid out like the plate
+            — then copy and paste it here. A column-number header row or a
+            row-label / temperature column can come along; they get dropped and
+            you'll be told. Blank cells become empty wells. You'll tag the plate
+            the same way as a photo, minus the corner marking.
+          </p>
+          <textarea
+            id="pasteBox"
+            class="paste-box"
+            rows="8"
+            spellcheck="false"
+            aria-label="Paste plate reader OD readings"
+            placeholder="Paste here — e.g.&#10;0.0701&#9;0.0746&#9;0.0659&#9;0.2748&#9;0.2752&#9;0.2675&#10;0.1012&#9;0.0863&#9;0.0995&#9;0.2912&#9;0.2941&#9;0.2846&#10;…"
+          ></textarea>
+          <div class="row actions">
+            <button class="btn" id="pasteBtn" type="button">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+              Read the block
+            </button>
+            <button class="btn btn-secondary" id="pasteClearBtn" type="button">Clear</button>
+          </div>
+          <p class="status" id="pasteStatus" role="status" hidden></p>
+        </div>
+
+        <div id="panelPhoto" role="tabpanel" aria-labelledby="tabPhoto" hidden>
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="fileInput" accept="image/*" hidden />
+            <svg class="dropzone-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.2"/></svg>
+            <span class="dropzone-title">Drop a plate photo here</span>
+            <span class="dropzone-sub">or click to choose a file — JPEG or PNG, shot flat-on under even light</span>
+          </label>
+          <!-- Says the quiet part out loud at the point of choosing, not in a
+               disclaimer after the answer. -->
+          <p class="hint">
+            Reads about 5% high against the corrected truth, and one sample on the
+            validation plate is off 14% from a lighting gradient. Good enough to
+            explore with; use the plate reader data when you have it.
+          </p>
+          <p class="status" id="fileStatus" role="status" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Steps 2–5: the tagging wizard =====
+         Each step is its own card with the SAME layout. There is only ONE plate
+         canvas (#plateCanvas); app.js MOVES it into the active step's .stage slot,
+         so the plate is integrated into every step without duplicating it. When a
+         step is finished it collapses to a green-check confirmation, and app.js
+         scrolls the active step to the same spot each time so the plate stays put
+         on screen. Every step's markup is deliberately parallel. -->
+
+    <!-- Step 2: Confirm the grid. The canvas starts in this slot. -->
+    <section class="card step-card" id="gridCard" hidden>
+      <div class="step-head" id="gridHead">
+        <h2><span class="step-num">2</span> Confirm the grid</h2>
+        <div class="step-summary"><span class="step-file" id="gridSummaryText"></span></div>
+      </div>
+      <div class="step-body">
+        <p class="verdict" id="gridVerdict">
+          <span class="flag flag-ok"><i></i>Grid</span>
+          <span class="verdict-text"></span>
+        </p>
+        <div class="stage stage-plate" id="gridSlot">
+          <canvas id="plateCanvas" class="stage-canvas"></canvas>
+        </div>
+        <div class="row actions">
+          <span class="status" id="cornerStatus" hidden>0 / 4 corners</span>
+          <!-- Escape hatch for a misclicked corner: wipes the corners and starts
+               the marking over. Shown as soon as there is a corner to undo. -->
+          <button class="btn btn-secondary" id="resetCornersBtn" data-nav="corners" type="button" hidden>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            Re-mark corners
+          </button>
+          <!-- Shown only once the grid is placed (app.js). data-nav = target phase. -->
+          <button class="btn" id="confirmGridBtn" data-nav="blanks" hidden>
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            <span id="fwdLabel">Looks right</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 3: Mark the blanks -->
+    <section class="card step-card" id="blanksCard" hidden>
+      <div class="step-head">
+        <h2><span class="step-num">3</span> Mark the blanks</h2>
+        <div class="step-summary"><span class="step-file" id="blanksSummaryText"></span></div>
+      </div>
+      <div class="step-body">
+        <!-- app.js rewrites this: amber until at least one blank is tagged. -->
+        <p class="verdict is-setup" id="blanksVerdict">
+          <span class="flag flag-caution"><i></i>No blanks yet</span>
+          <span class="verdict-text">Click every blank (zero-protein) well — these set the baseline.</span>
+        </p>
+        <div class="stage stage-plate" id="blanksSlot"></div>
+        <div class="row actions">
+          <button class="btn btn-secondary" data-nav="review">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
+          <button class="btn" data-nav="standards">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Looks right
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 4: Choose the ladder (the standard dilution series) -->
+    <section class="card step-card" id="ladderCard" hidden>
+      <div class="step-head">
+        <h2><span class="step-num">4</span> Choose the ladder</h2>
+        <div class="step-summary"><span class="step-file" id="ladderSummaryText"></span></div>
+      </div>
+      <div class="step-body">
+        <!-- app.js rewrites this: amber until at least one rung is tagged. -->
+        <p class="verdict is-setup" id="ladderVerdict">
+          <span class="flag flag-caution"><i></i>No ladder yet</span>
+          <span class="verdict-text">Set a concentration, then click each standard well for it. Change the value for every rung of the dilution series.</span>
+        </p>
+        <div class="stage stage-plate" id="ladderSlot"></div>
+        <!-- One concentration per plate row, built by app.js from whatever ladder
+             wells you selected. Wells sharing a row are treated as replicates.
+             Prefilled with the standard BSA series (0 … 2000 µg/mL). -->
+        <div class="row-fields" id="ladderRows" hidden></div>
+        <div class="row actions">
+          <button class="btn btn-secondary" data-nav="blanks">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
+          <button class="btn" data-nav="samples">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Looks right
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 5: Choose the samples -->
+    <section class="card step-card" id="samplesCard" hidden>
+      <div class="step-head">
+        <h2><span class="step-num">5</span> Choose the samples</h2>
+        <div class="step-summary"><span class="step-file" id="samplesSummaryText"></span></div>
+      </div>
+      <div class="step-body">
+        <!-- app.js rewrites this: amber until at least one sample is tagged. -->
+        <p class="verdict is-setup" id="samplesVerdict">
+          <span class="flag flag-caution"><i></i>No samples yet</span>
+          <span class="verdict-text">Name a sample, then click its wells. Rename for each unknown you want to read.</span>
+        </p>
+        <div class="stage stage-plate" id="samplesSlot"></div>
+        <!-- One name per plate row, built by app.js from whatever sample wells you
+             selected. Wells sharing a row are treated as replicates of that
+             unknown (triplicates on a standard plate). -->
+        <div class="row-fields" id="sampleRows" hidden></div>
+        <div class="row actions">
+          <button class="btn btn-secondary" data-nav="standards">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
+          <button class="btn" data-nav="check">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Looks right
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 6: Review & edit — the last look before reading the plate. Lists
+         every part with an Edit jump back into that step; app.js builds the list. -->
+    <section class="card step-card" id="reviewCard" hidden>
+      <div class="step-head">
+        <h2><span class="step-num">6</span> Review &amp; edit</h2>
+        <div class="step-summary"><span class="step-file" id="reviewSummaryText"></span></div>
+      </div>
+      <div class="step-body">
+        <p class="verdict is-setup" id="reviewVerdict">
+          <span class="flag flag-caution"><i></i>Not ready</span>
+          <span class="verdict-text">Check each part below.</span>
+        </p>
+        <div class="stage stage-plate" id="reviewSlot"></div>
+        <div class="row-fields" id="reviewParts"></div>
+        <div class="row actions">
+          <button class="btn btn-secondary" data-nav="samples">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back
+          </button>
+          <button class="btn" data-nav="compute">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+            Looks right
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Hidden utility: signal channel + curve fit are read by compute. Defaults
+         are correct (green channel, 4PL), so they are not shown in the flow. -->
+    <div hidden>
+      <select id="channelSelect">
+        <option value="g" selected>green</option>
+        <option value="bg">bg</option>
+        <option value="sat">sat</option>
+      </select>
+      <select id="fitMode">
+        <option value="4pl" selected>4pl</option>
+        <option value="linear">linear</option>
+        <option value="quad">quad</option>
+      </select>
+    </div>
+
+    <!-- ===== Step 7: Results ===== -->
+    <section class="card step-card" id="resultsCard" hidden>
+      <div class="step-head">
+        <h2><span class="step-num">7</span> Results</h2>
+        <div class="step-summary"><span class="step-file" id="resultsSummaryText"></span></div>
+      </div>
+      <div class="step-body">
+
+      <!-- Trust warning. Amber, never red: a flagged read is not an error, it is
+           a read that needs a human. app.js fills this. -->
+      <div class="warn" id="warnings" role="alert" hidden></div>
+
+      <div class="results-grid">
+        <!-- Color-critical: the curve reads as color, so it sits on a neutral
+             stage too. -->
+        <section class="stage stage-plot">
+          <div class="plot-head">
+            <h3 class="stage-h">Standard curve</h3>
+          </div>
+          <canvas id="plotCanvas" class="stage-canvas" width="360" height="280" aria-label="Standard curve: signal against concentration"></canvas>
+          <p class="fit-line" id="fitLine"></p>
+          <!-- What each rung actually measured. A rung reading far from what the
+               curve predicts is the tell that the grid is sampling the wrong
+               pixels — the numbers the plot alone hides. app.js fills this. -->
+          <div class="table-scroll">
+            <table class="results" id="ladderTable">
+              <thead>
+                <tr>
+                  <th scope="col">Rung</th>
+                  <th scope="col" class="ta-r">n</th>
+                  <th scope="col" class="ta-r">Signal</th>
+                  <th scope="col" class="ta-r">Fit</th>
+                  <th scope="col" class="ta-r">CV%</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="table-block">
+          <h3 class="table-h">Samples</h3>
+          <div class="table-scroll">
+            <!-- FROZEN thead label "Conc. (µg/mL)": never CSS-uppercase it, or
+                 the micro sign µ maps onto Greek capital Mu and misreports the
+                 unit 1000x. -->
+            <table class="results" id="resultsTable">
+              <thead>
+                <tr>
+                  <th scope="col">Sample</th>
+                  <th scope="col" class="ta-r">n</th>
+                  <th scope="col" class="ta-r">Signal</th>
+                  <th scope="col" class="ta-r">Conc. (µg/mL)</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button class="btn btn-secondary" id="csvBtn">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download CSV
+          </button>
+        </div>
+      </div>
+
+      <div class="row actions">
+        <button class="btn btn-secondary" data-nav="check">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to review
+        </button>
+        <button class="btn" id="planBtn">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          Plan gel loading
+        </button>
+      </div>
+
+      <!-- Rewritten per source by app.js: a photo's accuracy is about lighting,
+           an instrument read's is not, and pointing the reader's suspicion at the
+           wrong thing is worse than saying nothing. -->
+      <p class="hint disclaimer" id="resultsDisclaimer">
+        Educational tool. Accuracy depends on even lighting and a flat, glare-free
+        photo. Always shoot your standards in the same photo as your samples, and
+        re-shoot standards every run: curves do not carry across lighting.
+      </p>
+      </div><!-- /step-body -->
+    </section>
+
+    <!-- ===== Step 8: Gel loading plan =====
+         Step 7 says how much protein is there. This says what to pipette. Kept a
+         SEPARATE step, not a section of Results, because it is a different kind
+         of thing: Results is a measurement, this is a protocol built on top of
+         it, with its own inputs. Modelled on a real lab's WB prep sheet — see
+         core/loading.js for the cell-by-cell derivation. -->
+    <section class="card step-card" id="loadingCard" hidden>
+      <div class="step-head">
+        <h2><span class="step-num">8</span> Gel loading plan</h2>
+        <div class="step-summary"><span class="step-file" id="loadingSummaryText"></span></div>
+      </div>
+      <div class="step-body">
+
+        <p class="hint">
+          Equal protein mass in every lane. Enter your prep below and the table
+          gives you the µL to pipette per tube.
+        </p>
+
+        <!-- The protocol inputs. Every one is a number the source sheet had
+             hard-coded; here they are editable and the plan recomputes live. -->
+        <div class="row-fields" id="loadingInputs">
+
+          <div class="row-field">
+            <label class="row-field-label" for="dilutionFactor">Dilution</label>
+            <input class="row-input" type="number" id="dilutionFactor" min="0.01" step="1" value="1" />
+            <span class="hint-inline" id="dilutionHint"></span>
+          </div>
+
+          <div class="row-field">
+            <label class="row-field-label" for="targetMass">Target</label>
+            <input class="row-input" type="number" id="targetMass" min="1" step="5" value="225" />
+            <span class="hint-inline">µg of protein per tube.</span>
+          </div>
+
+          <div class="row-field">
+            <label class="row-field-label" for="finalVolume">Final vol</label>
+            <input class="row-input" type="number" id="finalVolume" min="1" step="10" value="120" />
+            <span class="hint-inline">µL in the tube once dye is in.</span>
+          </div>
+
+          <div class="row-field">
+            <label class="row-field-label" for="dyeX">Dye</label>
+            <select class="row-input" id="dyeX">
+              <option value="2">2x Laemmli</option>
+              <option value="4" selected>4x Laemmli</option>
+              <option value="6">6x Laemmli</option>
+            </select>
+            <span class="hint-inline" id="dyeHint"></span>
+          </div>
+
+          <div class="row-field">
+            <label class="row-field-label" for="loadPerLane">Per lane</label>
+            <input class="row-input" type="number" id="loadPerLane" min="1" step="1" value="18" />
+            <span class="hint-inline">µL pipetted into each gel well.</span>
+          </div>
+
+        </div>
+
+        <!-- What every tube gets, regardless of sample. A property of the
+             protocol, so it sits outside the table. -->
+        <p class="verdict is-found" id="loadingVerdict">
+          <span class="flag flag-ok"><i></i>Plan ready</span>
+          <span class="verdict-text" id="loadingHeadline"></span>
+        </p>
+
+        <!-- Amber, never red. Same rule as Step 7. -->
+        <div class="warnings" id="loadingWarnings" role="alert" hidden></div>
+
+        <div class="table-block">
+          <h3 class="table-h">Per tube</h3>
+          <div class="table-scroll">
+            <!-- FROZEN thead labels: never CSS-uppercase the µ, or the micro
+                 sign maps onto Greek capital Mu and misreports the unit 1000x.
+                 Same trap as Step 7's table. -->
+            <table class="results" id="loadingTable">
+              <thead>
+                <tr>
+                  <th scope="col">Sample</th>
+                  <th scope="col" class="ta-r">Read (µg/mL)</th>
+                  <th scope="col" class="ta-r">Stock (µg/mL)</th>
+                  <th scope="col" class="ta-r">Sample (µL)</th>
+                  <th scope="col" class="ta-r">Lysis buffer (µL)</th>
+                  <th scope="col" class="ta-r">Dye (µL)</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button class="btn btn-secondary" id="planCsvBtn">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download plan CSV
+          </button>
+        </div>
+
+        <div class="row actions">
+          <button class="btn btn-secondary" id="planBackBtn">
+            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            Back to results
+          </button>
+        </div>
+
+        <p class="hint disclaimer">
+          Mix in the order shown: sample, then lysis buffer, then dye. These
+          volumes are only as good as the photo they came from — a read that is
+          10% off puts 10% of the wrong mass in the lane, which is the one thing
+          equal-mass loading exists to prevent. Check the µL against your own
+          numbers before you trust a gel to them.
+        </p>
+      </div><!-- /step-body -->
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <p>Mobile Blot · BCA Reader · runs entirely in your browser, no upload</p>
+  </footer>
+
+  <!-- type="module" so app.js can import the shared core in ../core/.
+       This means the page MUST be served over http (python3 -m http.server),
+       never opened as a file:// URL. See docs/adr/0001-extract-math-core.md.
+       DO NOT change this tag. -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
