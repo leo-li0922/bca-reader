@@ -172,9 +172,11 @@ main {
   letter-spacing: -0.03em;
   color: var(--ink);
 }
+/* No measure cap. The header is already the column: on the app it is the page
+   width its cards use, on About it is the 68ch prose column. A second, narrower
+   cap on top of that only wraps the line short of an edge it should reach. */
 .tagline, .app-tagline {
   margin: var(--s4) 0 0;
-  max-width: 56ch;
   font-size: 1.05rem;
   color: var(--ink-2);
 }
@@ -237,11 +239,13 @@ main {
 }
 
 /* -------------------------------------------------------- text & rows ---- */
+/* Same reasoning as .app-tagline: the card is the measure. A 70ch cap inside a
+   card that is already narrower than the page just stops the line short of the
+   card's own edge. */
 .hint {
   color: var(--ink-2);
   font-size: 0.92rem;
   margin: 0 0 var(--s4);
-  max-width: 70ch;
 }
 .hint strong { color: var(--ink); font-weight: 600; }
 .hint-inline { color: var(--ink-3); font-size: 0.85rem; }
@@ -1062,6 +1066,75 @@ input:focus-visible, select:focus-visible {
   letter-spacing: 0.02em;
 }
 
+/* ------------------------------------------------------------- prose ----- */
+/* about.html only. The app is a wizard (short labels, dense controls); the
+   About page is an article, and article text needs a measure and a rhythm the
+   wizard has no use for. Scoped under .prose so none of it can reach the app.
+   Reuses .card for the container: an About section IS the same paper as a step. */
+.prose {
+  max-width: 68ch;
+  margin-left: auto;
+  margin-right: auto;
+}
+.prose + .prose { margin-top: var(--s5); }
+.prose p {
+  margin: var(--s4) 0 0;
+  font-size: 1rem;
+  line-height: 1.65;      /* looser than the app: this is read, not scanned */
+  color: var(--ink-2);
+}
+.prose h2 + p { margin-top: var(--s3); }
+.prose strong { color: var(--ink); font-weight: 600; }
+
+/* Mono here is the SAME contract as everywhere else in this app: it marks a
+   numeral a scientist reads as data. An equation qualifies; prose does not. */
+.prose .mono {
+  font-family: var(--mono);
+  font-size: 0.92em;
+  color: var(--ink);
+}
+
+/* A displayed equation. The rounded label is the whole point of the page, so
+   it gets to sit on its own line and be looked at. */
+.prose-callout {
+  margin: var(--s4) 0 0;
+  padding: var(--s3) var(--s4);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  border-radius: var(--r-sm);
+  text-align: center;
+}
+.prose-callout .mono { font-size: 1.05rem; font-weight: 500; }
+
+.prose a {
+  color: var(--brand-ink);   /* the 4.5:1 purple, not --brand */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.prose a:hover { text-decoration-thickness: 2px; }
+
+.prose-back { margin-top: var(--s5); }
+
+/* The cross-link between the two pages, parked in the header's top-right
+   corner. Absolute rather than a flex row so the title block keeps its existing
+   rhythm and neither page's header markup has to be reshaped around it. The
+   header's own top padding (--s7) is what it hangs in. */
+.app-header { position: relative; }
+/* The About page's header shares the prose column's measure so the title, the
+   cards, and the corner button all line up on one column. The app's own header
+   keeps the full page width, because its cards use it. */
+.about-header { max-width: 68ch; }
+.header-about {
+  position: absolute;
+  top: var(--s5);
+  right: var(--s5);
+  padding: var(--s2) var(--s4);
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
 /* ----------------------------------------------------------- responsive -- */
 /* The results plot + table stack on narrow desktop widths; nothing ever
    scrolls the page horizontally. */
@@ -1072,6 +1145,9 @@ input:focus-visible, select:focus-visible {
   main { padding: var(--s5) var(--s4) var(--s7); }
   .card { padding: var(--s4); }
   .site-header, .app-header { padding: var(--s5) var(--s4) var(--s4); }
+  /* Follow the header's own shrunken padding, or the button drifts out of the
+     corner it is supposed to be sitting in. */
+  .header-about { top: var(--s4); right: var(--s4); }
   .brush { flex: 1 1 auto; }
 }
 

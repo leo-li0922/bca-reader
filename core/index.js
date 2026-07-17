@@ -17,7 +17,6 @@ export {
   invertQuadratic,
   fourPLFit,
   solveN,
-  solve3,
   rSquared,
 } from "./fits.js";
 export { sampleColorAt, colorToSignal } from "./signal.js";
@@ -32,6 +31,7 @@ export {
   sampleBlocks,
   DEFAULT_REPLICATES,
 } from "./plate.js";
+export { BSA_LADDER_UGML } from "./protocol.js";
 export {
   R2_MIN,
   CV_MAX,

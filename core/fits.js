@@ -83,7 +83,7 @@ export function quadraticFit(points) {
     t0 += p.y; t1 += p.y * x; t2 += p.y * x2;
   }
   // Matrix is [[s4 s3 s2 | t2],[s3 s2 s1 | t1],[s2 s1 s0 | t0]] → [a,b,c]
-  const sol = solve3([
+  const sol = solveN([
     [s4, s3, s2, t2],
     [s3, s2, s1, t1],
     [s2, s1, s0, t0],
@@ -262,6 +262,24 @@ export function fourPLFit(points) {
 
 // Gaussian elimination with partial pivoting on an n×(n+1) augmented matrix.
 // Returns null if the matrix is singular.
+//
+// ONE solver, both callers. There used to be a `solve3` beside this — a
+// character-for-character copy specialised to the quadratic's 3×4 matrix,
+// differing only in its singularity tolerance (1e-12 here vs 1e-14). Two copies
+// of an elimination is two places to fix a pivoting bug and one place to forget,
+// and the loop bounds were the only thing the specialisation bought. Removed
+// 2026-07-16 with validation/baseline-plate-3124.txt byte-identical across all
+// three fits, so the epsilon band between 1e-14 and 1e-12 provably holds nothing
+// the real plate lands in.
+//
+// The tolerance is ABSOLUTE and that is a known soft spot, not an oversight: the
+// quadratic's normal equations carry Σx⁴, which on a 0–2000 µg/mL ladder is ~1e13,
+// so no fixed epsilon is scale-free here. It is a backstop against an exactly
+// degenerate matrix (every standard at one concentration), not a conditioning
+// test — and compute.js refuses a ladder with fewer than 2 distinct
+// concentrations long before this sees it, which is where the degenerate case
+// is actually caught. Nothing pins that null return independently: no unit test
+// reaches this branch, so treat it as reasoned-about, not verified.
 export function solveN(m) {
   const n = m.length;
   const a = m.map((row) => row.slice());
@@ -281,33 +299,6 @@ export function solveN(m) {
   for (let r = n - 1; r >= 0; r--) {
     let sum = a[r][n];
     for (let k = r + 1; k < n; k++) sum -= a[r][k] * x[k];
-    x[r] = sum / a[r][r];
-  }
-  return x;
-}
-
-// Gaussian elimination with partial pivoting on a 3×4 augmented matrix.
-export function solve3(m) {
-  const a = m.map((row) => row.slice());
-  for (let col = 0; col < 3; col++) {
-    // Pivot: largest magnitude in this column.
-    let piv = col;
-    for (let r = col + 1; r < 3; r++) {
-      if (Math.abs(a[r][col]) > Math.abs(a[piv][col])) piv = r;
-    }
-    if (Math.abs(a[piv][col]) < 1e-12) return null; // singular
-    [a[col], a[piv]] = [a[piv], a[col]];
-    // Eliminate below.
-    for (let r = col + 1; r < 3; r++) {
-      const f = a[r][col] / a[col][col];
-      for (let k = col; k < 4; k++) a[r][k] -= f * a[col][k];
-    }
-  }
-  // Back-substitution.
-  const x = [0, 0, 0];
-  for (let r = 2; r >= 0; r--) {
-    let sum = a[r][3];
-    for (let k = r + 1; k < 3; k++) sum -= a[r][k] * x[k];
     x[r] = sum / a[r][r];
   }
   return x;

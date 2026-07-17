@@ -8,6 +8,17 @@
   <meta name="color-scheme" content="light" />
   <title>BCA Reader — protein assay → gel loading plan</title>
 
+  <!-- Without these the link pastes into Slack/email as a bare URL with no
+       preview, which reads as somebody's abandoned side project. The og: tags
+       are what make it unfurl with a title and a line of description.
+       Keep og:url absolute — a relative one silently does not unfurl. -->
+  <meta name="description" content="Paste your plate reader's readings, get protein concentrations and a gel loading plan. Free, runs entirely in your browser, nothing is uploaded." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="BCA Reader" />
+  <meta property="og:description" content="Turn a 96-well BCA plate into protein concentrations and a gel loading plan. Free, runs in your browser, nothing is uploaded." />
+  <meta property="og:url" content="https://leo-li0922.github.io/bca-reader/bca-reader/" />
+  <meta name="twitter:card" content="summary" />
+
   <!-- Two typefaces only. Inter for everything; JetBrains Mono is reserved for
        numerals that get read as data (concentrations, R², CV%, µg/mL).
        Space Grotesk is gone (ADR 0002). -->
@@ -26,17 +37,21 @@
 
   <!-- ===== Header ===== -->
   <header class="app-header">
-    <!-- The eyebrow used to read "Mobile Blot" — the project's name, which is
-         about imaging a blot with a phone and still fits the parked moonshot. It
-         does NOT fit THIS product: a desktop web app whose default input is a
-         block of numbers pasted out of a spreadsheet. On the public site it was
-         the only place a visitor met the project, and it promised a phone app. -->
+    <!-- This read "Mobile Blot" until 2026-07-16 — the project's old name, from
+         when the premise was photographing a plate with a phone. It promised a
+         phone app to every visitor of what is a desktop web app whose default
+         input is a block of numbers pasted out of a spreadsheet. The project has
+         since been renamed to match this page rather than the other way round. -->
     <p class="app-eyebrow">Protein assay tools</p>
     <h1 class="app-title">BCA Reader</h1>
     <p class="app-tagline">
       Turn a 96-well BCA plate into protein concentrations and a gel loading plan.
       Paste your plate reader's readings, or upload a photo of the plate.
     </p>
+    <!-- One button, not a nav bar. There are two pages; a nav would be furniture.
+         It is a button rather than a line of prose because it is navigation, and
+         navigation should look clickable and stay out of the reading path. -->
+    <a class="btn btn-secondary header-about" href="./about.html">About</a>
   </header>
 
   <main id="workflow">
@@ -86,12 +101,9 @@
              is the answer. See core/import.js. -->
         <div id="panelPaste" role="tabpanel" aria-labelledby="tabPaste">
           <p class="hint">
-            <strong>The accurate path.</strong> In your spreadsheet, select just
-            the block of OD readings — one cell per well, laid out like the plate
-            — then copy and paste it here. A column-number header row or a
-            row-label / temperature column can come along; they get dropped and
-            you'll be told. Blank cells become empty wells. You'll tag the plate
-            the same way as a photo, minus the corner marking.
+            <strong>The accurate path.</strong> Copy the OD block out of your
+            spreadsheet, one cell per well, and paste it here. Header rows and
+            label columns get dropped automatically.
           </p>
           <textarea
             id="pasteBox"
@@ -102,9 +114,14 @@
             placeholder="Paste here — e.g.&#10;0.0701&#9;0.0746&#9;0.0659&#9;0.2748&#9;0.2752&#9;0.2675&#10;0.1012&#9;0.0863&#9;0.0995&#9;0.2912&#9;0.2941&#9;0.2846&#10;…"
           ></textarea>
           <div class="row actions">
-            <button class="btn" id="pasteBtn" type="button">
-              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-              Read the block
+            <!-- Always says "Next"; only its WEIGHT changes. Ships secondary
+                 because that is what an untouched page shows, and syncPasteBtn()
+                 promotes it to the primary purple the moment the box has
+                 content. Arrow, not a tick: this button advances the wizard, so
+                 it carries the same glyph as Step 7's "Plan gel loading". -->
+            <button class="btn btn-secondary" id="pasteBtn" type="button">
+              <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              Next
             </button>
             <button class="btn btn-secondary" id="pasteClearBtn" type="button">Clear</button>
           </div>
@@ -112,19 +129,21 @@
         </div>
 
         <div id="panelPhoto" role="tabpanel" aria-labelledby="tabPhoto" hidden>
+          <!-- Says the quiet part out loud BEFORE the drop area, not under it: a
+               caveat below the control is a caveat you read after you have
+               already dropped the file. Mirrors the paste panel, where the hint
+               also leads. -->
+          <p class="hint">
+            <strong>Less accurate.</strong> Reads about 5% high, and uneven
+            lighting can throw a single well further still. Use the plate reader
+            data when you have it.
+          </p>
           <label class="dropzone" id="dropzone">
             <input type="file" id="fileInput" accept="image/*" hidden />
             <svg class="dropzone-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3.2"/></svg>
             <span class="dropzone-title">Drop a plate photo here</span>
-            <span class="dropzone-sub">or click to choose a file — JPEG or PNG, shot flat-on under even light</span>
+            <span class="dropzone-sub">or click to choose. JPEG or PNG, shot flat-on under even light.</span>
           </label>
-          <!-- Says the quiet part out loud at the point of choosing, not in a
-               disclaimer after the answer. -->
-          <p class="hint">
-            Reads about 5% high against the corrected truth, and one sample on the
-            validation plate is off 14% from a lighting gradient. Good enough to
-            explore with; use the plate reader data when you have it.
-          </p>
           <p class="status" id="fileStatus" role="status" hidden></p>
         </div>
       </div>
@@ -141,7 +160,7 @@
     <!-- Step 2: Confirm the grid. The canvas starts in this slot. -->
     <section class="card step-card" id="gridCard" hidden>
       <div class="step-head" id="gridHead">
-        <h2><span class="step-num">2</span> Confirm the grid</h2>
+        <h2><span class="step-num">2</span> Confirm the grid (exclude outliers)</h2>
         <div class="step-summary"><span class="step-file" id="gridSummaryText"></span></div>
       </div>
       <div class="step-body">
@@ -154,11 +173,14 @@
         </div>
         <div class="row actions">
           <span class="status" id="cornerStatus" hidden>0 / 4 corners</span>
-          <!-- Escape hatch for a misclicked corner: wipes the corners and starts
-               the marking over. Shown as soon as there is a corner to undo. -->
+          <!-- Step 2's escape hatch, and it escapes from different things on the
+               two paths. PHOTO: "Re-mark corners", shown once there is a corner
+               to undo. OD: there are no corners, so the only thing to undo is
+               the paste itself and it becomes "Back" to Step 1. app.js's
+               updateResetBtn() owns the swap; this markup is the photo case. -->
           <button class="btn btn-secondary" id="resetCornersBtn" data-nav="corners" type="button" hidden>
-            <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
-            Re-mark corners
+            <svg class="ic" id="resetBtnIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+            <span id="resetBtnLabel">Re-mark corners</span>
           </button>
           <!-- Shown only once the grid is placed (app.js). data-nav = target phase. -->
           <button class="btn" id="confirmGridBtn" data-nav="blanks" hidden>

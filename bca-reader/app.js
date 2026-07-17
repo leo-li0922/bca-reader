@@ -28,6 +28,7 @@ import {
   applyBlockToWells,
   sampleBlocks,
   DEFAULT_REPLICATES,
+  BSA_LADDER_UGML,
   LOADING_DEFAULTS,
   DILUTION_NOTE,
   DEFAULT_FIT,
@@ -225,6 +226,9 @@ const OD_CELL_W = 94;
 const OD_CELL_H = 76;
 const OD_MARGIN_L = 52; // gutter for the row letters A–H
 const OD_MARGIN_T = 44; // gutter for the column numbers 1–12
+// What the cells sit ON. Named because a faded cell's ink colour is computed by
+// blending against it, so the two must never disagree.
+const OD_PLATE_BG = "#f6f7fb";
 const OD_PAD = 20;
 
 // An OD cell's fill: light → BCA purple, scaled to the block's OWN range rather
@@ -329,20 +333,47 @@ function selectSource(which) {
 $("tabPhoto").addEventListener("click", () => selectSource("photo"));
 $("tabPaste").addEventListener("click", () => selectSource("paste"));
 
+// Step 1's button mirrors the box: it always says "Next" and only its WEIGHT
+// carries the state. Empty, there is nothing to read, so it sits at the same
+// weight as Clear; with content it becomes the primary purple.
+//
+// It is never DISABLED. A dead button is a dead end: it cannot say why it is
+// dead, so the one person who needs the answer is the one who cannot get it.
+// Clicking it while empty says what is missing instead.
+function syncPasteBtn() {
+  const hasText = $("pasteBox").value.trim().length > 0;
+  $("pasteBtn").classList.toggle("btn-secondary", !hasText);
+}
+syncPasteBtn();
+// Typing IS the answer to "nothing to read yet", so the complaint goes the
+// moment they act on it. A page should never open with a complaint on it, and
+// an error that outlives the thing it was about is just noise.
+$("pasteBox").addEventListener("input", () => {
+  syncPasteBtn();
+  setPasteStatus("", "ok");
+});
+
 $("pasteBtn").addEventListener("click", (e) => {
   e.preventDefault();
-  ingestPasteText($("pasteBox").value);
+  const text = $("pasteBox").value;
+  if (!text.trim()) {
+    setPasteStatus("Nothing to read yet. Paste your plate reader's readings above.", "error");
+    return;
+  }
+  ingestPasteText(text);
 });
 $("pasteClearBtn").addEventListener("click", (e) => {
   e.preventDefault();
   $("pasteBox").value = "";
   setPasteStatus("", "ok");
+  syncPasteBtn();
 });
 // Pasting into the box is the whole gesture — don't also make them hit a button.
 // Deferred a tick so the textarea holds the pasted text by the time we read it.
 $("pasteBox").addEventListener("paste", () => {
   setTimeout(() => {
     const v = $("pasteBox").value;
+    syncPasteBtn();
     if (v.trim()) ingestPasteText(v);
   }, 0);
 });
@@ -381,37 +412,46 @@ function scrollStepToTop(card) {
 function collapseStep(cardId) { const c = $(cardId); if (c) c.classList.add("is-done"); }
 function expandStep(cardId) { const c = $(cardId); if (c) c.classList.remove("is-done"); }
 
-// The X on the collapsed Load step: wipe the image + everything derived from it
-// and return to Step 1, ready for a different photo.
+// Wipe the plate and everything derived from it, and return to Step 1 ready for
+// a different one. TWO buttons land here — the X on the collapsed Load step, and
+// Step 2's "Back" on the OD path — because they mean the same thing: this plate
+// was the wrong one, start over. Two copies of a reset is one copy that forgets
+// to clear a field, and the field it forgets is the one that silently poisons
+// the next run.
+function resetToLoad() {
+  state.baseImageData = null;
+  state.corners = [];
+  state.wells = [];
+  state.rowConc = {};
+  state.rowLabel = {};
+  state.sampleResults = null;
+  state.plan = null;
+  state.fit = null;
+  state.mode = "idle";
+  // Reset the OD path too, or the next photo loads onto a canvas that still
+  // thinks it is a spreadsheet.
+  state.source = null;
+  state.odGrid = null;
+  state.odRange = null;
+  const pb = $("pasteBox");
+  if (pb) pb.value = "";
+  setPasteStatus("", "ok");
+  syncPasteBtn();                          // back to the empty "Next"
+  const fi = $("fileInput");
+  if (fi) fi.value = "";                   // let the same file be re-picked
+  setFileStatus("", "ok");
+  expandStep("loadCard");
+  WIZARD_CARDS.forEach((id) => { const c = $(id); if (c) { c.hidden = true; c.classList.remove("is-done"); } });
+  $("resultsCard").hidden = true;
+  $("loadingCard").hidden = true;
+  scrollStepToTop($("loadCard"));
+}
+
 const clearPhotoBtn = $("clearPhotoBtn");
 if (clearPhotoBtn) {
   clearPhotoBtn.addEventListener("click", (e) => {
     e.preventDefault();
-    state.baseImageData = null;
-    state.corners = [];
-    state.wells = [];
-    state.rowConc = {};
-    state.rowLabel = {};
-    state.sampleResults = null;
-    state.plan = null;
-    state.fit = null;
-    state.mode = "idle";
-    // Reset the OD path too, or the next photo loads onto a canvas that still
-    // thinks it is a spreadsheet.
-    state.source = null;
-    state.odGrid = null;
-    state.odRange = null;
-    const pb = $("pasteBox");
-    if (pb) pb.value = "";
-    setPasteStatus("", "ok");
-    const fi = $("fileInput");
-    if (fi) fi.value = "";                 // let the same file be re-picked
-    setFileStatus("", "ok");
-    expandStep("loadCard");
-    WIZARD_CARDS.forEach((id) => { const c = $(id); if (c) { c.hidden = true; c.classList.remove("is-done"); } });
-    $("resultsCard").hidden = true;
-    $("loadingCard").hidden = true;
-    scrollStepToTop($("loadCard"));
+    resetToLoad();
   });
 }
 
@@ -425,18 +465,25 @@ function setVerdict(kind) {
     const cs = $("cornerStatus");
     if (cs) cs.hidden = true;
     v.classList.add("is-found");
+    // Say the count out loud rather than leave it to be spotted on the plate. An
+    // exclusion the user forgot is an exclusion quietly changing their numbers,
+    // which is the one thing this app is not allowed to do.
+    const off = state.wells.filter((w) => w.excluded).length;
+    const offText = off
+      ? ` <strong>${off} well${off === 1 ? "" : "s"} switched off</strong> and counting nowhere.`
+      : "";
     if (state.source === "od") {
-      // Nothing to align — the ask here is "did your block land where you meant",
+      // Nothing to align: the ask here is "did your block land where you meant",
       // which is a different question from the photo path's "do the circles sit
       // on the wells". Same step, different doubt.
       const n = state.wells.filter((w) => isFinite(w.reading)).length;
       v.innerHTML =
         `<span class="flag flag-ok"><i></i>Readings placed</span>` +
-        `<span class="verdict-text">${n} well(s) filled in, starting at A1. Check the numbers sit where they did on your plate — your ladder should read as a gradient. Then hit Looks right.</span>`;
+        `<span class="verdict-text">${n} well(s) filled in, starting at A1. Check the numbers sit where they did on your plate; your ladder should read as a gradient. Click any well to switch off an outlier.${offText} Then hit Looks right.</span>`;
     } else {
       v.innerHTML =
         `<span class="flag flag-ok"><i></i>Grid placed</span>` +
-        `<span class="verdict-text">Every well shows its name. Check the circles line up, then hit Looks right.</span>`;
+        `<span class="verdict-text">Every well shows its name. Check the circles line up. Click any well to switch off an outlier.${offText} Then hit Looks right.</span>`;
     }
   }
 }
@@ -525,11 +572,24 @@ const PHASE_VERDICT = {
 // A step's forward button is disabled until the step is actually finished, so a
 // half-done step can never be walked past. `reason` becomes the tooltip.
 // The "Re-mark corners" escape hatch only makes sense once a corner exists.
+// The two faces of Step 2's escape hatch. Same button, same slot; what it
+// escapes from is what differs. The OD path has no corners to re-mark, so
+// "Re-mark corners" there would wipe the plate and drop you into a
+// corner-marking phase with no image. What a pasted plate CAN undo is the paste,
+// so it says "Back" and returns to Step 1 for a different block.
+const RESET_ICON_REMARK = '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>';
+const RESET_ICON_BACK = '<path d="M19 12H5M12 19l-7-7 7-7"/>';
+
 function updateResetBtn() {
   const b = $("resetCornersBtn");
-  // The OD path has no corners to re-mark, so the escape hatch would be a button
-  // that wipes the plate and drops you into a corner-marking phase with no image.
-  if (b) b.hidden = state.source === "od" || state.corners.length === 0;
+  if (!b) return;
+  const od = state.source === "od";
+  // Photo: only once there is a corner to undo. OD: always — the paste is
+  // always undoable.
+  b.hidden = od ? false : state.corners.length === 0;
+  $("resetBtnIcon").innerHTML = od ? RESET_ICON_BACK : RESET_ICON_REMARK;
+  $("resetBtnLabel").textContent = od ? "Back" : "Re-mark corners";
+  b.title = od ? "Clear this plate and paste a different block" : "";
 }
 
 function setStepGate(cardId, ok, reason) {
@@ -546,7 +606,11 @@ function updatePhaseVerdict(mode = state.mode) {
   if (!cfg) return;
   const v = $(cfg.el);
   if (!v) return;
-  const wells = state.wells.filter((w) => w.role === cfg.role);
+  // Excluded wells do not count here either, or a step goes green on wells the
+  // core is about to throw away: switch off every blank and this would report
+  // "1 blank" while compute silently falls back to a zero baseline. A gate that
+  // counts differently from the thing it gates is not a gate.
+  const wells = state.wells.filter((w) => w.role === cfg.role && !w.excluded);
   const s = cfg.state(wells);
   v.classList.remove("is-setup", "is-found");
   v.classList.add(s.ok && !s.warn ? "is-found" : "is-setup");
@@ -684,11 +748,11 @@ document.querySelectorAll("[data-nav]").forEach((btn) => {
   btn.addEventListener("click", () => {
     const to = btn.dataset.nav;
     if (to === "compute") { computeConcentrations(); return; }
-    // "Re-mark corners" is meaningless on the OD path (there are none, and there
-    // is no image to mark them on). The button is hidden there, so this is a
-    // belt-and-braces guard against a stray data-nav.
+    // This slot is "Re-mark corners" on the photo path and "Back" on the OD one
+    // (updateResetBtn). Corner-marking is meaningless on a pasted block, so
+    // there the same click means "wrong plate, let me paste another".
     if (to === "corners") {
-      if (state.source === "od") return;
+      if (state.source === "od") { resetToLoad(); return; }
       state.corners = []; state.wells = []; state.rowConc = {}; state.rowLabel = {};
       enterPhase("corners");
       return;
@@ -756,11 +820,26 @@ function eventToImageCoords(e) {
   };
 }
 
-// Corner marking is a simple click on empty space. A click that landed on an
-// existing corner started a drag instead, so it must not also place a new one.
+// Both grid phases live on this listener. A click that landed on an existing
+// corner started a DRAG, so it must not also place a corner or toggle a well —
+// hence the grabbedCorner check runs for both.
 canvas.addEventListener("click", (e) => {
-  if (state.mode !== "corners") return;
+  if (!isGridPhase()) return;
   if (grabbedCorner) { grabbedCorner = false; return; }
+
+  // Step 2, once the grid is placed: click a well to switch it off. This is the
+  // outlier hatch — a bubble, a scratch, a well the pipette missed. It stays
+  // TAGGED (see core/compute.js step 0: untagging would re-slice the sample
+  // blocks) and simply stops counting.
+  if (state.mode === "review") {
+    const w = nearestWell(eventToImageCoords(e));
+    if (!w) return;
+    w.excluded = !w.excluded;
+    setVerdict("placed");   // the banner carries the running count
+    redraw();
+    return;
+  }
+
   if (state.corners.length >= 4) return;
   handleCornerClick(eventToImageCoords(e));
 });
@@ -972,9 +1051,10 @@ function buildGrid(corners = state.corners) {
 // replicates (triplicates on a standard plate).
 // ============================================================
 
-// The standard BSA 2-fold series, top row down. Used to prefill the ladder so a
-// normal plate needs no typing at all.
-const LADDER_DEFAULTS = [0, 31.25, 62.5, 125, 250, 500, 1000, 2000];
+// The standard BSA 2-fold series, top row down, prefills the ladder so a normal
+// plate needs no typing at all. The series itself is the KIT's, not this
+// screen's, so it lives in core/protocol.js and is imported — never re-typed
+// here. See ADR 0001.
 
 // Which plate rows hold wells of a given role, top to bottom.
 function rowsWithRole(role) {
@@ -1026,8 +1106,8 @@ function renderRowFields({ boxId, role }) {
   // it stays correct whether or not row A went to the blanks step. Only
   // `undefined` is prefilled, so a field you deliberately cleared stays cleared.
   rows.forEach((r) => {
-    if (state.rowConc[r] === undefined && r < LADDER_DEFAULTS.length) {
-      state.rowConc[r] = LADDER_DEFAULTS[r];
+    if (state.rowConc[r] === undefined && r < BSA_LADDER_UGML.length) {
+      state.rowConc[r] = BSA_LADDER_UGML[r];
     }
   });
   syncRowConcs();
@@ -1346,8 +1426,7 @@ function computeConcentrations() {
   const fitMode = $("fitMode") ? $("fitMode").value : DEFAULT_FIT;
 
   // Put a colour on every tagged well. This is the edge's job because it needs
-  // pixels: demo wells carry their true BCA colour (the plate pixels are blank
-  // on purpose), a real uploaded photo gets sampled from the image itself.
+  // pixels: a photo's wells get sampled from the image itself.
   //
   // The OD path skips this entirely: its wells already carry a `signal` (the
   // instrument's reading), so there is nothing to sample and no image to sample
@@ -1355,16 +1434,14 @@ function computeConcentrations() {
   if (state.source !== "od") {
     for (const w of state.wells) {
       if (w.role === "unused") continue;
-      w.color =
-        w.demoColor ||
-        sampleColorAt(
-          state.baseImageData.data,
-          state.naturalW,
-          state.naturalH,
-          w.x,
-          w.y,
-          state.wellRadius
-        );
+      w.color = sampleColorAt(
+        state.baseImageData.data,
+        state.naturalW,
+        state.naturalH,
+        w.x,
+        w.y,
+        state.wellRadius
+      );
     }
   }
 
@@ -1565,7 +1642,10 @@ $("csvBtn").addEventListener("click", (e) => {
     : `# signal column is 255-green off the photo. NOTE: the photo path reads ~5% high\n# against the corrected truth; per-sample error can be worse. Prefer pasted\n# plate reader data when you have it.\n`;
   csv += "well,role,label,signal,conc_ugml\n";
   for (const w of state.wells) {
-    if (w.role === "unused") continue;
+    // An excluded well counted nowhere in the numbers above, so it must not
+    // appear beside them either: a row in this file is a row that was USED, and
+    // an exported well with an empty concentration is a question, not a record.
+    if (w.role === "unused" || w.excluded) continue;
     const conc = w.role === "sample"
       ? (isFinite(w.estConc) ? w.estConc.toFixed(1) : "")
       : (w.conc ?? "");
@@ -1838,8 +1918,34 @@ const ROLE_FILL = {
 // palest wells, so a block pasted one row off, or rotated, is obvious at a glance
 // rather than being arithmetic you have to check. The shading is a readability
 // aid, not data — nothing samples these pixels.
+// How faint a switched-off well goes. Tuned against the OD plate, not guessed:
+// at 0.3 a dark rung's reading faded into the background WITH its cell and the
+// number became unreadable, which defeats the point — you switched the well off
+// BECAUSE of its number, so the number is the last thing that may disappear.
+// 0.45 still reads as off at a glance (the slash carries that) while leaving
+// every reading legible, including H-row cells at full purple.
+const EXCLUDED_ALPHA = 0.45;
+
+// The switched-off mark: one diagonal stroke across a well the user excluded at
+// Step 2. Drawn at FULL opacity over the dimmed cell, because the cell is dimmed
+// and a faint mark on a faint cell is no mark at all. The reading underneath
+// stays legible on purpose: you excluded the well BECAUSE of its number, so the
+// number is the one thing that must not disappear with it.
+function drawExcludedSlash(cx, cy, half) {
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "rgba(30, 35, 50, 0.5)";
+  ctx.lineWidth = Math.max(1.5, half * 0.1);
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(cx - half * 0.62, cy + half * 0.62);
+  ctx.lineTo(cx + half * 0.62, cy - half * 0.62);
+  ctx.stroke();
+  ctx.restore();
+}
+
 function drawODPlate(shades) {
-  ctx.fillStyle = "#f6f7fb";
+  ctx.fillStyle = OD_PLATE_BG;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Column numbers and row letters in the gutters, so "that block sits at A1"
@@ -1864,6 +1970,12 @@ function drawODPlate(shades) {
     const cw = OD_CELL_W - 6;
     const ch = OD_CELL_H - 6;
     const has = isFinite(w.reading);
+
+    // An excluded well is drawn faint: everything from here to the restore()
+    // below fades together, so the cell reads as switched off in one gesture
+    // rather than needing a dimmed variant of every colour underneath.
+    ctx.save();
+    if (w.excluded) ctx.globalAlpha = EXCLUDED_ALPHA;
 
     roundRect(ctx, x, y, cw, ch, 8);
 
@@ -1908,17 +2020,27 @@ function drawODPlate(shades) {
     ctx.lineWidth = w.role === "unused" ? 1.5 : 3;
     ctx.stroke();
 
-    if (!has) continue;
+    // restore() before EVERY exit from this iteration, or the dim leaks onto
+    // every well drawn after an excluded one.
+    if (!has) { ctx.restore(); continue; }
+
+    // Choose the ink against what the cell ACTUALLY looks like on screen, not
+    // against the colour it was mixed from. A switched-off cell is painted at
+    // EXCLUDED_ALPHA over the plate's background, so a dark purple rung ends up
+    // LIGHT — and white ink, picked from the unfaded purple, then vanishes into
+    // it. Caught on H3 (OD 1.194, the darkest cell): the reading disappeared the
+    // moment it was excluded, which is precisely the number you excluded it for.
+    const shown = w.excluded ? blend(hexToRgb(OD_PLATE_BG), paint, EXCLUDED_ALPHA) : paint;
+    const dark = luminance(shown) < 0.55; // is the cell dark enough to need light ink?
 
     // Well name, small and quiet in the corner. The OD is the thing being read.
-    ctx.fillStyle = luminance(paint) < 0.55 ? "rgba(255,255,255,0.7)" : "rgba(30, 35, 50, 0.5)";
+    ctx.fillStyle = dark ? "rgba(255,255,255,0.7)" : "rgba(30, 35, 50, 0.5)";
     ctx.font = "600 11px system-ui";
     ctx.textAlign = "left";
     ctx.fillText(w.name, x + 8, y + 12);
 
     // The reading itself: mono + tabular, the same contract as the results
     // tables, because this is a number that gets read as data.
-    const dark = luminance(paint) < 0.55; // is the cell dark enough to need light ink?
     ctx.fillStyle = dark ? "#ffffff" : "#1e2332";
     ctx.font = '500 17px "JetBrains Mono", ui-monospace, monospace';
     ctx.textAlign = "center";
@@ -1931,6 +2053,9 @@ function drawODPlate(shades) {
       ctx.font = "600 11px system-ui";
       ctx.fillText(String(w.label).slice(0, 12), w.x, y + ch - 9);
     }
+
+    ctx.restore();
+    if (w.excluded) drawExcludedSlash(w.x, w.y, Math.min(cw, ch) / 2);
   }
   ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
@@ -1971,6 +2096,10 @@ function redraw() {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   for (const w of state.wells) {
+    // Same fade as the OD renderer: an excluded well is drawn faint, then
+    // slashed at full opacity once the dim is off.
+    ctx.save();
+    if (w.excluded) ctx.globalAlpha = EXCLUDED_ALPHA;
     ctx.beginPath();
     ctx.arc(w.x, w.y, state.wellRadius, 0, Math.PI * 2);
     const groupGreen = shades.get(w);
@@ -1993,6 +2122,9 @@ function redraw() {
     ctx.fillStyle = "#ffffff";
     ctx.strokeText(w.name, w.x, w.y);
     ctx.fillText(w.name, w.x, w.y);
+
+    ctx.restore();
+    if (w.excluded) drawExcludedSlash(w.x, w.y, state.wellRadius);
   }
   ctx.textAlign = "start";
   ctx.textBaseline = "alphabetic";
@@ -2029,135 +2161,6 @@ function drawSelectionBox() {
   ctx.fillRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
   ctx.strokeRect(b.x0, b.y0, b.x1 - b.x0, b.y1 - b.y0);
   ctx.restore();
-}
-
-// ============================================================
-// Demo plate generator
-// Builds a synthetic 96-well plate so the whole flow can be tried with no photo.
-// Layout: column 1 = BSA standard series (A1=0 blank ... H1=2000),
-//         3 unknown samples in column 3 with known "true" values to check recovery.
-// ============================================================
-
-// The demo button was removed from the UI (2026-07-16). The generator below is
-// kept intact — our fastest test path — and re-wires itself if the button ever
-// returns to index.html. Guarded so its absence never crashes page load.
-const demoBtn = $("demoBtn");
-if (demoBtn) {
-  demoBtn.addEventListener("click", () => {
-    const demo = generateDemoPlate();
-    loadImageFromURL(demo.dataURL);
-    // Once the image is in, auto-mark corners + roles so results appear instantly.
-    // Small timeout lets loadImageFromURL's async onload finish first.
-    const t = setInterval(() => {
-      if (!state.baseImageData) return;
-      clearInterval(t);
-      autoSetupDemo(demo);
-    }, 30);
-  });
-}
-
-// Map a concentration (0..2000 µg/mL) to a believable BCA purple color.
-// Higher protein -> green drops most, red drops some, blue stays high => purple.
-function concToColor(conc) {
-  const t = Math.min(1, conc / 2000);
-  return {
-    r: Math.round(232 - t * 60),
-    g: Math.round(230 - t * 150),
-    b: Math.round(236 - t * 18),
-  };
-}
-
-function generateDemoPlate() {
-  const cell = 56;                 // px per well cell
-  const margin = 40;
-  const w = margin * 2 + COLS * cell;
-  const h = margin * 2 + ROWS * cell;
-  const c = document.createElement("canvas");
-  c.width = w; c.height = h;
-  const g = c.getContext("2d");
-
-  // Plate body.
-  g.fillStyle = "#dfe3e8";
-  g.fillRect(0, 0, w, h);
-  g.fillStyle = "#cfd4da";
-  roundRect(g, 12, 12, w - 24, h - 24, 16); g.fill();
-
-  // Standard series down column 1.
-  const stdConcs = [0, 125, 250, 500, 750, 1000, 1500, 2000];
-  // Unknown samples in column 3 (rows A,B,C) with hidden "true" values.
-  const sampleTruth = { 0: 300, 1: 900, 2: 1600 }; // row -> conc
-
-  const wellR = cell * 0.38;
-  for (let r = 0; r < ROWS; r++) {
-    for (let col = 0; col < COLS; col++) {
-      const cx = margin + col * cell + cell / 2;
-      const cy = margin + r * cell + cell / 2;
-
-      // Every well starts as a faint, empty buffer — no pre-baked purple. The
-      // demo's "true" signal lives on the well objects (set in autoSetupDemo),
-      // not in these pixels, so the plate looks clean and a well only turns
-      // purple once you tag it as a standard/sample.
-      const noise = () => (Math.random() - 0.5) * 4;
-      g.fillStyle = `rgb(${238 + noise()},${238 + noise()},${240 + noise()})`;
-      g.beginPath(); g.arc(cx, cy, wellR, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = "rgba(0,0,0,0.12)"; g.lineWidth = 1; g.stroke();
-    }
-  }
-
-  return {
-    dataURL: c.toDataURL("image/png"),
-    geom: { margin, cell },
-    stdConcs,
-    sampleTruth,
-  };
-}
-
-// Auto-place corners on the known demo geometry and tag standards/samples.
-function autoSetupDemo(demo) {
-  const { margin, cell } = demo.geom;
-  const centerOf = (r, col) => ({
-    x: margin + col * cell + cell / 2,
-    y: margin + r * cell + cell / 2,
-  });
-  state.corners = [
-    centerOf(0, 0), centerOf(0, COLS - 1),
-    centerOf(ROWS - 1, 0), centerOf(ROWS - 1, COLS - 1),
-  ];
-  buildGrid();
-  state.mode = "assign";
-  updateCornerStatus();
-
-  // Tag wells, and stash the "true" BCA color each well WOULD have. The plate
-  // pixels are intentionally blank now, so compute reads w.demoColor instead —
-  // that's how the demo recovers the known concentrations from a clean plate.
-  // A little noise keeps the fit from being unrealistically perfect.
-  const demoNoise = () => (Math.random() - 0.5) * 6;
-  const trueColor = (conc) => {
-    const c = concToColor(conc);
-    return { r: c.r + demoNoise(), g: c.g + demoNoise(), b: c.b + demoNoise() };
-  };
-  // Column 1 = the BSA standard ladder (+ blank). Column 3 rows A-C = three
-  // unknowns with hidden true values, so the demo actually DEMONSTRATES recovery
-  // (~300/900/1600) instead of computing a curve with an empty sample table.
-  for (const w of state.wells) {
-    if (w.col === 0) {
-      const conc = demo.stdConcs[w.row];
-      if (conc === 0) { w.role = "blank"; w.conc = 0; }
-      else { w.role = "standard"; w.conc = conc; w.label = `${conc}`; }
-      w.demoColor = trueColor(conc);
-    } else if (w.col === 2 && demo.sampleTruth[w.row] !== undefined) {
-      w.role = "sample";
-      w.label = `Unknown ${String.fromCharCode(65 + w.row)}`;
-      w.demoColor = trueColor(demo.sampleTruth[w.row]);
-    }
-  }
-  revealGridStep();
-  setTray(true);
-  setVerdict("placed");
-  redraw();
-  // Show the plate with its tagged wells; the user reviews, then hits Compute
-  // (or "Looks right").
-  $("gridCard").scrollIntoView({ behavior: "smooth" });
 }
 
 // Helper: rounded rectangle path.

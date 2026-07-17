@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Same light-theme exception as the app (ADR 0002): this is a colour
+       measurement instrument and its chrome stays neutral. -->
+  <meta name="color-scheme" content="light" />
+  <title>About BCA Reader</title>
+
+  <meta name="description" content="More accurate than a spreadsheet, with no template to fiddle with. Paste your plate reader's readings and get protein concentrations and a gel loading plan. Free, runs in your browser." />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="About BCA Reader" />
+  <meta property="og:description" content="More accurate than a spreadsheet, with no template to fiddle with. Excel's trendline label is rounded: divide by it and every concentration reads 5.9% high." />
+  <meta property="og:url" content="https://leo-li0922.github.io/bca-reader/bca-reader/about.html" />
+  <meta name="twitter:card" content="summary" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#about">Skip to the article</a>
+
+  <!-- `about-header` narrows this to the prose column's own measure. Without it
+       the header spans the full page width while the .prose cards sit centred at
+       68ch, so the title starts ~190px left of the text it introduces and the
+       corner button floats off the side of the article. -->
+  <header class="app-header about-header">
+    <p class="app-eyebrow">About</p>
+    <h1 class="app-title">Why this exists</h1>
+    <p class="app-tagline">
+      Two reasons: it is more accurate than your spreadsheet, and there is no
+      template to fiddle with.
+    </p>
+    <!-- Mirrors the reader's own top-right About button, so the two pages point
+         at each other from the same corner. -->
+    <a class="btn btn-secondary header-about" href="./">Back</a>
+  </header>
+
+  <main id="about">
+
+    <!-- ===== Lead 1: accuracy =====
+         The Excel finding is the EVIDENCE for the accuracy claim, not a war
+         story. It earns the headline: it is specific, checkable, and true
+         whether or not the reader ever uses the app. Do not bury it and do not
+         let it become the subject of the page. -->
+    <article class="card prose">
+      <h2>More accurate than Excel</h2>
+
+      <p>
+        Not a dig at Excel. The problem is one specific habit: reading the
+        trendline equation off the chart. Excel prints it rounded for display. On
+        the plate this was built against it printed:
+      </p>
+
+      <p class="prose-callout">
+        <span class="mono">y = 0.0007x</span>
+      </p>
+
+      <p>
+        The real slope was <span class="mono">0.000741</span>. Type the label
+        into a cell and every concentration comes out <strong>5.9% high</strong>.
+        You then pipette less sample than you meant to, so every lane loads about
+        <strong>5% under</strong> target. Nothing ever looks wrong, because every
+        lane is wrong by the same amount.
+      </p>
+
+      <p>
+        This tool fits the curve to <em>your</em> ladder, every run, at full
+        precision. No slope is ever typed into it, and nothing in it reads a
+        number off a label. That is the whole of the advantage.
+      </p>
+
+      <p>
+        If you would rather just fix your spreadsheet, do that instead. It is one
+        cell, and you do not need this tool for it:
+      </p>
+
+      <p class="prose-callout">
+        <span class="mono">=SLOPE(known_ys, known_xs)</span>
+      </p>
+    </article>
+
+    <!-- ===== Lead 2: no templates ===== -->
+    <article class="card prose">
+      <h2>No template to fiddle with</h2>
+
+      <p>
+        No workbook to copy, no cells to re-point when your ladder moves a row,
+        no formula to break when someone inserts a column, and no hunting for
+        whichever version of the sheet is the good one.
+      </p>
+
+      <p>
+        Paste your plate reader's readings, tag which wells are blanks, ladder,
+        and samples, and <a href="./">BCA Reader</a> gives you concentrations
+        plus the µL of sample, lysis buffer, and dye per tube for equal protein
+        mass in every lane. No plate reader? You can photograph the plate with
+        your phone instead, at the cost of some accuracy.
+      </p>
+    </article>
+
+    <article class="card prose">
+      <h2>How it was built</h2>
+
+      <p>
+        By a summer student at Baylor College of Medicine in 2026, against a real
+        plate on a real plate reader rather than simulated data. The fit lands
+        within about <strong>1%</strong> of corrected truth, which is also how
+        the rounding got caught: the tool and the spreadsheet disagreed by 6%,
+        and the spreadsheet turned out to be wrong.
+      </p>
+
+      <p>No experimental results from that lab appear anywhere in it.</p>
+    </article>
+
+    <!-- Honest limits. This section is the reason to trust the rest of the page.
+         Never soften it and never quote "4.5%" (CONTEXT.md → RESOLVED
+         2026-07-16: that figure was the distance to an inflated target, and two
+         errors cancelling). -->
+    <article class="card prose">
+      <h2>What it is not good at</h2>
+
+      <p>
+        <strong>Phone photos.</strong> If you photograph the plate with your
+        phone instead of reading it on a plate reader, the numbers get worse:
+        they run about <strong>5% high</strong>, and uneven lighting across the
+        plate can push a single well past 10%. A camera is guessing at colour
+        under whatever light your bench happens to have; a plate reader measures
+        it.
+      </p>
+
+      <p>
+        So everything above about accuracy is the plate reader path, not the
+        camera. <strong>If you have a plate reader, paste its readings.</strong>
+        The phone photo is there for when you genuinely do not have the
+        instrument. It is better than nothing, not equal to one.
+      </p>
+    </article>
+
+    <article class="card prose">
+      <h2>Your data never leaves your computer</h2>
+
+      <p>
+        No server, no upload, no account, no analytics. It runs inside your
+        browser tab and keeps working with the wifi off. It is free, and the code
+        is <a href="https://github.com/leo-li0922/bca-reader">on GitHub</a>.
+      </p>
+
+      <p>
+        It is an educational tool built by a student, not a validated clinical
+        instrument. Check its numbers before you trust a gel to them.
+      </p>
+
+      <p class="prose-back">
+        <a class="btn btn-secondary" href="./">
+          <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          Back to the reader
+        </a>
+      </p>
+    </article>
+
+  </main>
+
+  <footer class="app-footer">
+    <p>BCA Reader · runs entirely in your browser · nothing is uploaded</p>
+  </footer>
+</body>
+</html>

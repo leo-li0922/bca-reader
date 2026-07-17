@@ -43,9 +43,23 @@ import {
  * member wells so CSV export can read it off the well. That mutation is
  * deliberate and behaviour-preserving.
  */
-export function computeConcentrations(wells, opts = {}) {
+export function computeConcentrations(allWells, opts = {}) {
   const channel = opts.channel || DEFAULT_CHANNEL;
   const fitMode = opts.fitMode || DEFAULT_FIT;
+
+  // 0. Drop the wells the user switched off at Step 2 (a bubble, a scratch, a
+  //    pipetting miss). Dropped ONCE, here, before anything reads them, so no
+  //    branch below has to remember they exist: not the blank baseline, not a
+  //    replicate mean, not a CV, not the fit, not a sample, not the CSV.
+  //
+  //    An excluded well KEEPS ITS ROLE on purpose. Untagging it instead would
+  //    pull it out of the row array that sampleBlocks() slices into groups of n
+  //    by position, sliding every later well up a slot: exclude A2 of a 3-rep
+  //    A1..A6 row and "Ctrl" would silently become [A1,A3,A4], eating a well
+  //    that belongs to the next sample. Roles keep the block boundaries; this
+  //    filter keeps the arithmetic honest. Samples are grouped by LABEL below,
+  //    so a group simply averages the members it has left.
+  const wells = allWells.filter((w) => !w.excluded);
 
   // 1. Make sure every tagged well has a signal.
   //    Photo path: derive it from the sampled colour. Instrument path: it is
