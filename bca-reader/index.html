@@ -6,7 +6,7 @@
   <!-- Color-measurement instrument: light theme is the documented exception to
        dark-mode default (ADR 0002). Chrome must stay neutral around the photo. -->
   <meta name="color-scheme" content="light" />
-  <title>BCA Reader — Mobile Blot</title>
+  <title>BCA Reader — protein assay → gel loading plan</title>
 
   <!-- Two typefaces only. Inter for everything; JetBrains Mono is reserved for
        numerals that get read as data (concentrations, R², CV%, µg/mL).
@@ -26,11 +26,16 @@
 
   <!-- ===== Header ===== -->
   <header class="app-header">
-    <p class="app-eyebrow">Mobile Blot</p>
+    <!-- The eyebrow used to read "Mobile Blot" — the project's name, which is
+         about imaging a blot with a phone and still fits the parked moonshot. It
+         does NOT fit THIS product: a desktop web app whose default input is a
+         block of numbers pasted out of a spreadsheet. On the public site it was
+         the only place a visitor met the project, and it promised a phone app. -->
+    <p class="app-eyebrow">Protein assay tools</p>
     <h1 class="app-title">BCA Reader</h1>
     <p class="app-tagline">
-      Turn a 96-well BCA plate into protein concentrations and a gel loading plan
-      — from your plate reader's readings, or a phone photo.
+      Turn a 96-well BCA plate into protein concentrations and a gel loading plan.
+      Paste your plate reader's readings, or upload a photo of the plate.
     </p>
   </header>
 
@@ -516,7 +521,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>Mobile Blot · BCA Reader · runs entirely in your browser, no upload</p>
+    <p>BCA Reader · runs entirely in your browser · nothing is uploaded</p>
   </footer>
 
   <!-- type="module" so app.js can import the shared core in ../core/.
