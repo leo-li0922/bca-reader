@@ -6,6 +6,70 @@
 export const ROWS = 8;
 export const COLS = 12;
 
+// How many wells one sample occupies in a row. Triplicate is the near-universal
+// default on a BCA plate; the UI lets you change it.
+export const DEFAULT_REPLICATES = 3;
+
+// ============================================================
+// Splitting a row of sample wells into the samples it actually holds.
+//
+// THE PROBLEM THIS SOLVES. Samples were defined one-per-plate-row: same row =
+// replicates. That holds for up to 8 samples in a single block of columns. It
+// breaks the moment there are more, because the plate gets a SECOND block beside
+// the first — 12 samples = columns 4-6 (rows A-H) plus columns 7-9 (rows A-D) —
+// and now row A holds sample 1 AND sample 9. One name per row silently merged
+// them: six wells averaged as one sample, a plausible CV, no warning, 6 answers
+// where there should be 12. Reported from a real bench 2026-07-16.
+//
+// WHY THIS TAKES A `replicates` ARGUMENT INSTEAD OF DETECTING THE SPLIT. The two
+// blocks are ADJACENT — row A's sample wells are columns 4,5,6,7,8,9, one
+// unbroken run. Nothing in the data distinguishes "two 3-replicate samples" from
+// "one 6-replicate sample": both are six tagged wells in a row. A gap-detector
+// would be right only for plates that happen to leave a spare column, and wrong
+// silently for the rest. So the app is TOLD the replicate count. Guessing here
+// would be guessing quietly, which is the one thing this project forbids.
+//
+// WHY ONLY SAMPLES NEED THIS, and the ladder does not: standards carry their
+// identity in a NUMBER the user types (the concentration), and compute.js groups
+// them by it — so two ladder blocks at the same concentrations correctly merge
+// into more replicates. Samples carry their identity in a NAME keyed to position.
+// Identity-by-value merges harmlessly; identity-by-position does not.
+// ============================================================
+
+/**
+ * Split the sample wells into groups, one per sample.
+ *
+ * @param wells       All well objects.
+ * @param replicates  Wells per sample (>= 1).
+ * @returns [{ key, row, block, wells }] — `wells` sorted left to right, `key` is
+ *          stable across re-tagging so a name the user typed survives.
+ *
+ * Ordered BLOCK-MAJOR, then by row: down the first block of columns, then down
+ * the next. That is the order a plate gets filled, so prefilled S1…S12 land
+ * where a human expects them (S1-S8 down block one, S9-S12 down block two).
+ */
+export function sampleBlocks(wells, replicates = DEFAULT_REPLICATES) {
+  const n = Math.max(1, Math.floor(replicates) || 1);
+
+  const byRow = new Map();
+  for (const w of wells) {
+    if (w.role !== "sample") continue;
+    if (!byRow.has(w.row)) byRow.set(w.row, []);
+    byRow.get(w.row).push(w);
+  }
+
+  const groups = [];
+  for (const [row, rowWells] of byRow) {
+    rowWells.sort((a, b) => a.col - b.col);
+    for (let i = 0; i < rowWells.length; i += n) {
+      const block = Math.floor(i / n);
+      groups.push({ key: `${row}:${block}`, row, block, wells: rowWells.slice(i, i + n) });
+    }
+  }
+  groups.sort((a, b) => a.block - b.block || a.row - b.row);
+  return groups;
+}
+
 // Well name from zero-based row/col, e.g. (0,0) -> "A1".
 export function wellName(row, col) {
   return String.fromCharCode(65 + row) + (col + 1);

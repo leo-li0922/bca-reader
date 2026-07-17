@@ -21,7 +21,17 @@ export {
   rSquared,
 } from "./fits.js";
 export { sampleColorAt, colorToSignal } from "./signal.js";
-export { ROWS, COLS, wellName, lerp, buildGrid, SBS, wellFraction } from "./plate.js";
+export {
+  ROWS,
+  COLS,
+  wellName,
+  lerp,
+  buildGrid,
+  SBS,
+  wellFraction,
+  sampleBlocks,
+  DEFAULT_REPLICATES,
+} from "./plate.js";
 export {
   R2_MIN,
   CV_MAX,

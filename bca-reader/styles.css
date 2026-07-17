@@ -395,6 +395,33 @@ input:focus-visible, select:focus-visible {
    step's verdict banner doesn't touch the step number. */
 .step-body { margin-top: var(--s3); }
 .step-summary { display: flex; align-items: center; gap: var(--s3); min-width: 0; }
+
+/* A control that lives in a step's HEAD, right-aligned opposite the heading —
+   for a setting that governs the WHOLE step rather than one of its rows. Mirror
+   of .step-summary: that shows only when collapsed, this only when active, and
+   they share the slot. */
+.step-tool { display: flex; align-items: center; gap: var(--s2); flex: 0 0 auto; }
+.card.is-done .step-tool { display: none; }
+.step-tool-label {
+  font-size: 0.85rem; font-weight: 600; color: var(--ink-2);
+  white-space: nowrap;
+}
+.step-tool-input {
+  width: 58px; min-height: 34px;
+  padding: 0 var(--s2);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: 0.9rem; text-align: center;
+  transition: border-color var(--t-fast) var(--ease-out);
+}
+.step-tool-input:hover { border-color: var(--brand); }
+.step-tool-input:focus {
+  border-color: var(--brand);
+  outline: 2.5px solid var(--brand); outline-offset: 2px;
+}
 .card:not(.is-done) .step-summary { display: none; }  /* summary only when collapsed */
 .step-file {
   font-family: var(--mono); font-variant-numeric: tabular-nums;
@@ -444,6 +471,19 @@ input:focus-visible, select:focus-visible {
   .card.phase-flash,
   .card.phase-flash .step-num,
   .card.phase-flash .verdict { animation: none; }
+}
+
+/* -------------------------------------------------------- group chip --- */
+/* Ties a sample's name field to its wells on the plate. Two greens alternate
+   per replicate group (app.js → SAMPLE_GREENS): a plate's groups form a grid,
+   grids are 2-colourable, so a checkerboard makes every touching pair differ.
+   Purely a pointer back to the plate — identity lives in the label next to it,
+   never in this square. */
+.group-chip {
+  flex: 0 0 auto;
+  width: 10px; height: 10px;
+  border-radius: 3px;
+  margin-right: calc(-1 * var(--s1));
 }
 
 /* -------------------------------------------------------- source tabs --- */
@@ -581,6 +621,91 @@ input:focus-visible, select:focus-visible {
   border-radius: var(--r-lg);
 }
 .row-fields[hidden] { display: none; }
+
+/* ------------------------------------------------- sample fields: a plate --- */
+/* The sample name fields are laid out AS THE PLATE IS: one grid column per block
+   of columns on the plate, one grid row per plate row. So a plate with samples in
+   columns 4-6 and 7-9 gets two columns of fields, and a block that stops at row D
+   leaves the rest of its column empty — exactly like the wells above it.
+   Set inline by app.js (grid-template-columns from the block count; each field
+   placed at its own row/block), because the shape is the plate's, not the CSS's.
+   A single-block plate resolves to one column: the old list, unchanged. */
+.row-fields.is-plate {
+  display: grid;
+  gap: var(--s2) var(--s4);
+  align-items: center;
+}
+/* Narrow columns cannot afford the well-count hint next to everything else; the
+   chip and the A4-6 label already say which wells these are. It returns as the
+   input's title. */
+.row-fields.is-plate .row-field .hint-inline { display: none; }
+
+/* ONE BOX PER SAMPLE: the wells it covers and the name you give them live inside
+   the same border, because they are one thing. With the label floating outside a
+   separately-bordered input, the NEXT field's label read as if it belonged to the
+   PREVIOUS field's box — which is exactly the confusion these fields exist to
+   prevent, since the whole point is knowing which wells a name applies to. */
+.row-fields.is-plate .row-field {
+  gap: var(--s2);
+  min-height: 40px;
+  padding: 0 var(--s2) 0 var(--s3);
+  background: var(--surface);
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  transition: border-color var(--t-fast) var(--ease-out);
+}
+.row-fields.is-plate .row-field:hover { border-color: var(--brand); }
+/* The box takes the focus ring, since the box IS the control now. */
+.row-fields.is-plate .row-field:focus-within {
+  border-color: var(--brand);
+  outline: 2.5px solid var(--brand);
+  outline-offset: 2px;
+}
+/* flex: 0 0 auto — the well range must NEVER shrink. Flex items default to
+   `0 1 auto`, so the label was shrinking below its text while `nowrap` kept the
+   text from reflowing: the result was "A4" sliced in half by the divider. The
+   input absorbs the squeeze instead (it has flex: 1 1 auto and min-width: 0),
+   which is right — a name can scroll, a well range cannot be half-read. */
+.row-fields.is-plate .row-field-label {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  color: var(--ink-2);
+  min-width: 0;
+  white-space: nowrap;
+}
+/* flex: 1 1 auto + width:auto. The base rule is `width: 150px; flex: 0 0 auto`,
+   and overriding only the width left the input unable to SHRINK — so it sat at
+   its cell's full width and shoved the label out the side. */
+.row-fields.is-plate .row-input {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 var(--s1);
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  /* Centred in its own half of the box: the name is the field's content, and
+     left-aligning it against the divider made it read as part of the well range
+     rather than as the thing you type. */
+  text-align: center;
+}
+.row-fields.is-plate .row-input:focus { outline: none; }
+/* A group with fewer wells than the replicate count is how a wrong count shows
+   itself, and the text saying so is hidden in these narrow columns — so the field
+   itself goes amber. Amber, never red: it is usually the last group on a plate
+   and perfectly legitimate. The full sentence stays on the input's title. */
+.row-fields.is-plate .row-field.is-short {
+  border-color: var(--caution-line);
+  background: var(--caution-soft);
+}
+
+/* Below this the two columns stop being readable and stack. */
+@media (max-width: 720px) {
+  .row-fields.is-plate { grid-template-columns: minmax(0, 1fr) !important; }
+  .row-fields.is-plate .row-field { grid-column: 1 !important; grid-row: auto !important; }
+}
 .row-field {
   display: flex; align-items: center; gap: var(--s3);
 }

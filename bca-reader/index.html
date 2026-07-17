@@ -224,18 +224,40 @@
     <section class="card step-card" id="samplesCard" hidden>
       <div class="step-head">
         <h2><span class="step-num">5</span> Choose the samples</h2>
+        <!-- Wells per sample, side by side. It belongs in the HEAD, not the field
+             list: it governs how EVERY row splits, so it is a property of the
+             step rather than of any one sample. It also has to be reachable
+             before the rows make sense — if the count is wrong, the list below is
+             the wrong list. Static markup, not rendered by app.js, so its
+             listener binds once instead of on every re-render.
+             Hidden when the step collapses; the summary takes this slot. -->
+        <div class="step-tool" id="replicatesTool">
+          <label class="step-tool-label" for="replicatesInput">Replicates</label>
+          <input
+            class="step-tool-input"
+            type="number"
+            id="replicatesInput"
+            min="1" max="12" step="1"
+            aria-label="Wells per sample, side by side"
+            title="Wells per sample, side by side. Raise it if one row holds more than one sample."
+          />
+        </div>
         <div class="step-summary"><span class="step-file" id="samplesSummaryText"></span></div>
       </div>
       <div class="step-body">
         <!-- app.js rewrites this: amber until at least one sample is tagged. -->
         <p class="verdict is-setup" id="samplesVerdict">
           <span class="flag flag-caution"><i></i>No samples yet</span>
-          <span class="verdict-text">Name a sample, then click its wells. Rename for each unknown you want to read.</span>
+          <span class="verdict-text">Drag a box around your sample wells, then name each group below. Wells side by side are replicates — if a row holds two samples, set Replicates to match.</span>
         </p>
         <div class="stage stage-plate" id="samplesSlot"></div>
-        <!-- One name per plate row, built by app.js from whatever sample wells you
-             selected. Wells sharing a row are treated as replicates of that
-             unknown (triplicates on a standard plate). -->
+        <!-- One name per BLOCK OF REPLICATES, built by app.js from whatever sample
+             wells you selected. Wells side by side within a block are replicates
+             of that unknown (triplicates on a standard plate).
+             NOT one per row: a row holds more than one sample as soon as a plate
+             needs a second block of columns (12 samples = cols 4-6 rows A-H, then
+             cols 7-9 rows A-D). The blocks are adjacent, so the split cannot be
+             detected — hence the Replicates field. See core/plate.js. -->
         <div class="row-fields" id="sampleRows" hidden></div>
         <div class="row actions">
           <button class="btn btn-secondary" data-nav="standards">

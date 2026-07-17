@@ -26,6 +26,8 @@ import {
   planLoading as corePlan,
   parsePlateBlock,
   applyBlockToWells,
+  sampleBlocks,
+  DEFAULT_REPLICATES,
   LOADING_DEFAULTS,
   DILUTION_NOTE,
   DEFAULT_FIT,
@@ -51,11 +53,17 @@ const state = {
   mode: "idle",        // 'idle' | 'corners' | 'review' | 'blanks' | 'standards' | 'samples'
   brush: { role: "blank", conc: 0, label: "S1" },
   wellRadius: 8,       // sampling radius in pixels, derived from spacing
-  // The ladder and the samples are both defined per PLATE ROW: row index ->
-  // concentration / name. Every well in a row shares that row's value, i.e.
-  // same row = replicates.
+  // The ladder is defined per PLATE ROW: row index -> concentration. Every well
+  // in the row shares it, i.e. same row = replicates.
   rowConc: {},
+  // Samples are defined per BLOCK OF REPLICATES, keyed "row:block" — because a
+  // row holds more than one sample once a plate needs a second block of columns
+  // (12 samples = cols 4-6 rows A-H, then cols 7-9 rows A-D). Keyed by row alone,
+  // those two silently merged into one 6-well "sample". See core/plate.js.
   rowLabel: {},
+  // Wells per sample, side by side. The blocks are adjacent, so this cannot be
+  // detected from the data — it has to be told. core/plate.js explains why.
+  replicates: DEFAULT_REPLICATES,
   // Set when a step is opened via Review's Edit, so finishing that step returns
   // to Review instead of walking the rest of the chain.
   returnTo: null,
@@ -480,18 +488,36 @@ const PHASE_VERDICT = {
     state: (wells) => {
       if (!wells.length) {
         return { ok: false, flag: "No samples yet",
-          text: "Drag a box around all the sample wells, then name each row." };
+          text: "Drag a box around all the sample wells, then name each group." };
       }
-      const rows = [...new Set(wells.map((w) => w.row))];
-      const missing = rows.filter((r) => !state.rowLabel[r] || !String(state.rowLabel[r]).trim());
+      // Keyed by GROUP, not row. Keyed by row this went permanently green on a
+      // two-block plate — it read rowLabel[0] while the real keys were "0:0" and
+      // "0:1" — so the gate waved through samples that had no name at all.
+      const groups = sampleBlocks(state.wells, state.replicates);
+      const missing = groups.filter((g) => {
+        const l = state.rowLabel[g.key];
+        return !l || !String(l).trim();
+      });
       if (missing.length) {
         return { ok: false,
-          flag: `${missing.length} row${missing.length === 1 ? "" : "s"} need a name`,
-          text: "Name each row below the plate. Wells sharing a row are treated as replicates." };
+          flag: `${missing.length} sample${missing.length === 1 ? "" : "s"} need a name`,
+          text: "Name each group below the plate. Wells side by side within a group are treated as replicates." };
+      }
+      // Two groups sharing a name get pooled into ONE sample by the core. Say so
+      // here rather than let it happen quietly — but do not block: pooling can be
+      // deliberate. Amber, never red.
+      const names = groups.map((g) => String(state.rowLabel[g.key]).trim());
+      const dupes = [...new Set(names.filter((n, i) => names.indexOf(n) !== i))];
+      if (dupes.length) {
+        return { ok: true, warn: true,
+          flag: `${dupes.length} duplicate name${dupes.length === 1 ? "" : "s"}`,
+          text: `${dupes.map((d) => `“${d}”`).join(", ")} ${dupes.length === 1 ? "is" : "are"} used more than once — those wells will be pooled into one sample. Rename them if they are different samples.` };
       }
       return { ok: true,
-        flag: `${rows.length} sample${rows.length === 1 ? "" : "s"} · ${wells.length} wells`,
-        text: "Each row is one unknown; the wells across it are replicates." };
+        flag: `${groups.length} sample${groups.length === 1 ? "" : "s"} · ${wells.length} wells`,
+        text: groups.some((g) => g.block > 0)
+          ? "Each group is one unknown; the wells across it are replicates."
+          : "Each row is one unknown; the wells across it are replicates." };
     },
   },
 };
@@ -523,9 +549,11 @@ function updatePhaseVerdict(mode = state.mode) {
   const wells = state.wells.filter((w) => w.role === cfg.role);
   const s = cfg.state(wells);
   v.classList.remove("is-setup", "is-found");
-  v.classList.add(s.ok ? "is-found" : "is-setup");
+  v.classList.add(s.ok && !s.warn ? "is-found" : "is-setup");
+  // `warn` = finished, but something here deserves a human. The step still lets
+  // you past (s.ok gates that); the flag just refuses to look reassuring.
   v.innerHTML =
-    `<span class="flag ${s.ok ? "flag-ok" : "flag-caution"}"><i></i>${s.flag}</span>` +
+    `<span class="flag ${s.ok && !s.warn ? "flag-ok" : "flag-caution"}"><i></i>${s.flag}</span>` +
     `<span class="verdict-text">${s.text}</span>`;
   setStepGate(PHASE_CARD[mode], s.ok, s.flag);
 }
@@ -964,19 +992,25 @@ function syncRowConcs() {
   }
 }
 
-// Push state.rowLabel onto every sample well. An empty name is left empty on
-// purpose: the core groups samples by label, so a blank one would silently make
-// each well its own sample instead of a replicate group.
+// Push state.rowLabel onto every sample well, one name per BLOCK of replicates
+// rather than per row — a row can hold more than one sample once the plate needs
+// a second block of columns (core/plate.js → sampleBlocks). An empty name is left
+// empty on purpose: the core groups samples by label, so a blank one would
+// silently make each well its own sample instead of a replicate group.
 function syncRowLabels() {
-  for (const w of state.wells) {
-    if (w.role !== "sample") continue;
-    const l = state.rowLabel[w.row];
-    w.label = l && String(l).trim() ? String(l).trim() : "";
+  // Wipe first: a well that has left a group (untagged, or re-chunked by a new
+  // replicate count) must not keep the name its old group gave it.
+  for (const w of state.wells) if (w.role === "sample") w.label = "";
+  for (const g of sampleBlocks(state.wells, state.replicates)) {
+    const l = state.rowLabel[g.key];
+    const name = l && String(l).trim() ? String(l).trim() : "";
+    for (const w of g.wells) w.label = name;
   }
 }
 
-// Shared renderer: one field per row that holds wells of `role`.
-function renderRowFields({ boxId, role, kind }) {
+// The LADDER's fields: one concentration per row that holds standard wells.
+// Samples used to share this renderer and no longer do — see renderSampleRows.
+function renderRowFields({ boxId, role }) {
   const box = $(boxId);
   if (!box) return;
   const rows = rowsWithRole(role);
@@ -987,30 +1021,23 @@ function renderRowFields({ boxId, role, kind }) {
   }
   box.hidden = false;
 
-  // Prefill any row we have not seen before: the ladder gets the standard BSA
-  // series in order, samples get S1, S2, … Only `undefined` is prefilled, so a
-  // field you deliberately cleared stays cleared.
-  rows.forEach((r, i) => {
-    if (kind === "conc") {
-      // Keyed to the PLATE ROW (A=0, B=31.25 … H=2000), not the selection order:
-      // that stays correct whether or not row A went to the blanks step.
-      if (state.rowConc[r] === undefined && r < LADDER_DEFAULTS.length) {
-        state.rowConc[r] = LADDER_DEFAULTS[r];
-      }
-    } else if (state.rowLabel[r] === undefined) {
-      state.rowLabel[r] = `S${i + 1}`;
+  // Prefill any row we have not seen before with the standard BSA series, keyed
+  // to the PLATE ROW (A=0, B=31.25 … H=2000) rather than the selection order, so
+  // it stays correct whether or not row A went to the blanks step. Only
+  // `undefined` is prefilled, so a field you deliberately cleared stays cleared.
+  rows.forEach((r) => {
+    if (state.rowConc[r] === undefined && r < LADDER_DEFAULTS.length) {
+      state.rowConc[r] = LADDER_DEFAULTS[r];
     }
   });
-  if (kind === "conc") syncRowConcs(); else syncRowLabels();
+  syncRowConcs();
 
   box.innerHTML = rows
     .map((r) => {
       const n = state.wells.filter((w) => w.role === role && w.row === r).length;
       const letter = String.fromCharCode(65 + r);
-      const val = (kind === "conc" ? state.rowConc[r] : state.rowLabel[r]) ?? "";
-      const attrs = kind === "conc"
-        ? `type="number" class="row-input is-conc" placeholder="µg/mL" min="0" step="any" aria-label="Concentration for row ${letter}"`
-        : `type="text" class="row-input" placeholder="name" aria-label="Name for row ${letter}"`;
+      const val = state.rowConc[r] ?? "";
+      const attrs = `type="number" class="row-input is-conc" placeholder="µg/mL" min="0" step="any" aria-label="Concentration for row ${letter}"`;
       return (
         `<div class="row-field">` +
         `<span class="row-field-label">Row ${letter}</span>` +
@@ -1021,27 +1048,146 @@ function renderRowFields({ boxId, role, kind }) {
     })
     .join("");
 
-  // Typing a row's value applies it to every well in that row.
+  // Typing a row's concentration applies it to every standard well in that row.
   box.querySelectorAll(".row-input").forEach((inp) => {
     inp.addEventListener("input", (e) => {
       const r = Number(e.target.dataset.row);
-      if (kind === "conc") {
-        const v = parseFloat(e.target.value);
-        state.rowConc[r] = isNaN(v) ? null : v;
-        syncRowConcs();
-        updatePhaseVerdict("standards");
-      } else {
-        state.rowLabel[r] = e.target.value;
-        syncRowLabels();
-        updatePhaseVerdict("samples");
-      }
+      const v = parseFloat(e.target.value);
+      state.rowConc[r] = isNaN(v) ? null : v;
+      syncRowConcs();
+      updatePhaseVerdict("standards");
       redraw();
     });
   });
 }
 
-const renderLadderRows = () => renderRowFields({ boxId: "ladderRows", role: "standard", kind: "conc" });
-const renderSampleRows = () => renderRowFields({ boxId: "sampleRows", role: "sample", kind: "name" });
+const renderLadderRows = () => renderRowFields({ boxId: "ladderRows", role: "standard" });
+
+// ============================================================
+// Sample naming: one field per BLOCK of replicates, not per row.
+//
+// The ladder still renders per row (renderRowFields above) and that is correct —
+// standards are identified by the concentration you type, so two ladder blocks at
+// the same concentrations merge into more replicates, which is what you want.
+// Samples are identified by NAME, so the same merge silently destroys data. The
+// two models diverged for a real reason; forcing them back through one renderer
+// would mean a `kind === "name"` branch in every line of it.
+//
+// See core/plate.js → sampleBlocks for why this needs a replicate count instead
+// of detecting the split.
+// ============================================================
+function renderSampleRows() {
+  const box = $("sampleRows");
+  if (!box) return;
+  const groups = sampleBlocks(state.wells, state.replicates);
+  if (!groups.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  box.hidden = false;
+
+  // Prefill in the order the plate gets filled — down block one, then down block
+  // two — so a fresh 12-sample plate comes out S1…S12 where a human expects them.
+  // Only `undefined` is prefilled, so a name you deliberately cleared stays
+  // cleared and a name you typed survives a re-chunk.
+  //
+  // NEVER hand out a name that is already taken. `S${i+1}` by position looks fine
+  // on a fresh plate and collides after a re-chunk, where some keys carry names
+  // from the old split and the new indices walk over them. Two groups with the
+  // same name are MERGED BY THE CORE — the identical silent-merge bug this whole
+  // block-splitting model exists to prevent, re-entered through the back door.
+  // Orphaned keys keep their names reserved too, so undoing a re-chunk restores
+  // the old split instead of colliding with it.
+  const taken = new Set(
+    Object.values(state.rowLabel).map((v) => String(v ?? "").trim()).filter(Boolean)
+  );
+  let next = 1;
+  for (const g of groups) {
+    if (state.rowLabel[g.key] !== undefined) continue;
+    while (taken.has(`S${next}`)) next++;
+    state.rowLabel[g.key] = `S${next}`;
+    taken.add(`S${next}`);
+  }
+  syncRowLabels();
+
+
+  const multiBlock = groups.some((g) => g.block > 0);
+
+  // Lay the fields out AS THE PLATE IS: one grid column per block, one grid row
+  // per plate row. Two columns of samples on the plate become two columns of
+  // names, and a block that stops at row D leaves the rest of its column empty —
+  // the same hole the wells have. Reading the list becomes reading the plate.
+  const nBlocks = Math.max(...groups.map((g) => g.block)) + 1;
+  box.classList.add("is-plate");
+  box.style.gridTemplateColumns = `repeat(${nBlocks}, minmax(0, 1fr))`;
+
+  box.innerHTML = groups
+      .map((g) => {
+        const letter = String.fromCharCode(65 + g.row);
+        const cols = g.wells.map((w) => w.col + 1);
+        const span = cols.length > 1 ? `${cols[0]}–${cols[cols.length - 1]}` : `${cols[0]}`;
+        // Name the WELLS, not the row, once a row can hold two samples: "Row A"
+        // would be ambiguous exactly when it matters most.
+        const label = multiBlock ? `${letter}${span}` : `Row ${letter}`;
+        const val = state.rowLabel[g.key] ?? "";
+        const short = g.wells.length < state.replicates;
+        // The same green this group's wells are outlined in on the plate, so a
+        // field and its wells are matchable without counting rows. Decorative
+        // only — the label beside it already says which wells these are, which is
+        // what keeps identity off the colour channel.
+        const chip = SAMPLE_GREENS[(g.row + g.block) % SAMPLE_GREENS.length];
+        const wellNames = g.wells.map((w) => `${letter}${w.col + 1}`).join(", ");
+        const hint = `${g.wells.length} well${g.wells.length === 1 ? "" : "s"}` +
+          // A stray leftover well is how a mis-set replicate count shows itself.
+          (short ? ` · fewer than ${state.replicates} — check the replicate count` : " · replicates");
+        return (
+          // grid-row/-column place this field at the same spot its wells occupy on
+          // the plate. 1-based, hence the +1.
+          `<div class="row-field${short ? " is-short" : ""}" style="grid-column:${g.block + 1};grid-row:${g.row + 1}">` +
+          `<span class="group-chip" style="background:${chip}" aria-hidden="true"></span>` +
+          `<span class="row-field-label">${label}</span>` +
+          `<span class="hint-inline">${hint}</span>` +
+          // The hint is hidden in the narrow grid columns, so it lives on as the
+          // title — the "check the replicate count" warning must not just vanish.
+          `<input type="text" class="row-input" placeholder="name" title="${wellNames} — ${hint}" aria-label="Name for wells ${wellNames}" data-key="${g.key}" value="${val}" />` +
+          `</div>`
+        );
+      })
+      .join("");
+
+  box.querySelectorAll(".row-input[data-key]").forEach((inp) => {
+    inp.addEventListener("input", (e) => {
+      state.rowLabel[e.target.dataset.key] = e.target.value;
+      syncRowLabels();
+      updatePhaseVerdict("samples");
+      redraw();
+    });
+  });
+
+}
+
+// The Replicates control lives in step 5's HEAD (index.html), so it is bound ONCE
+// here rather than re-bound on every render of the field list.
+//
+// Names are NOT wiped when it changes. Group keys are `row:block`, so most
+// survive a re-chunk and keep the name you typed; only genuinely new groups get a
+// prefilled S-number, and a group that disappears leaves its name behind, so
+// undoing the change restores the old split. This used to reset state.rowLabel
+// wholesale — which threw away every name on the plate the instant you nudged the
+// field, after you had typed twelve of them.
+const replicatesInput = $("replicatesInput");
+if (replicatesInput) {
+  replicatesInput.value = state.replicates; // seed from state; no default in the HTML to drift
+  replicatesInput.addEventListener("input", (e) => {
+    const v = parseInt(e.target.value, 10);
+    if (!(v >= 1 && v <= COLS)) return; // a half-typed or silly value changes nothing
+    state.replicates = v;
+    renderSampleRows();
+    updatePhaseVerdict("samples");
+    redraw();
+  });
+}
 
 // ============================================================
 // Review & edit (step 6): the last look before reading the plate
@@ -1068,9 +1214,11 @@ function reviewIssues() {
   if (!samps.length) {
     issues.push("no samples are marked");
   } else {
-    const rows = [...new Set(samps.map((w) => w.row))];
-    const unnamed = rows.filter((r) => !state.rowLabel[r] || !String(state.rowLabel[r]).trim());
-    if (unnamed.length) issues.push(`${unnamed.length} sample row${unnamed.length === 1 ? "" : "s"} without a name`);
+    const unnamed = sampleBlocks(state.wells, state.replicates).filter((g) => {
+      const l = state.rowLabel[g.key];
+      return !l || !String(l).trim();
+    });
+    if (unnamed.length) issues.push(`${unnamed.length} sample${unnamed.length === 1 ? "" : "s"} without a name`);
   }
   return issues;
 }
@@ -1173,12 +1321,13 @@ function applyBrush(well, { toggle }) {
     well.conc = c === undefined || c === null || isNaN(c) ? null : c;
     well.label = well.conc == null ? "" : `${well.conc}`;
   } else if (role === "sample") {
-    // The name is NOT set here — it comes from this well's plate row
-    // (state.rowLabel), which the user fills in per row after selecting.
+    // The name is NOT set here. A sample's name belongs to its BLOCK of
+    // replicates, and tagging this well may have just changed how its row chunks
+    // into blocks — so the label cannot be known until the whole row is
+    // re-chunked. syncRowLabels() does that, driven by renderSampleRows().
     well.role = "sample";
     well.conc = null;
-    const l = state.rowLabel[well.row];
-    well.label = l && String(l).trim() ? String(l).trim() : "";
+    well.label = "";
   }
 }
 
@@ -1598,6 +1747,82 @@ const ROLE_COLOR = {
   sample: "#4ade80",
   unused: "rgba(255,255,255,0.25)",
 };
+
+// ============================================================
+// Two greens, alternating per replicate group.
+//
+// THE JOB: make the boundary between neighbouring samples visible. With 12
+// samples the plate grows a second block of columns and row A holds sample 1
+// (cols 4-6) AND sample 9 (cols 7-9) — six identical green wells that look like
+// one sample. That is the same confusion core/plate.js exists to prevent, except
+// on screen instead of in the arithmetic.
+//
+// WHY TWO AND NOT TWELVE. Colour is not carrying identity here — the NAME is
+// drawn on every well, and a group is a contiguous run. Colour only has to answer
+// "does this well belong to the same sample as the one beside it", and group
+// adjacency on a plate is a GRID, which is 2-colourable: a checkerboard on
+// (row + block) guarantees every touching pair differs. Twelve colours would
+// answer a question nobody asked and fail doing it — validated with the dataviz
+// skill's checker (all-pairs, since any two groups can sit side by side):
+//
+//   2 greens  #22c55e/#166534  PASS  ΔE 28.7 normal, 27.9 deuteranopia
+//   3 (+teal)                  FAIL  ΔE 10.7 — under the 15 normal-vision floor
+//   4 (+lime)                  FAIL  ΔE 9.5
+//
+// Below that floor, readers with FULL colour vision cannot reliably tell the pair
+// apart, so a third shade would have looked richer and been worse. Both of these
+// are unmistakably green, so "green = sample" survives the split.
+//
+// THIS PAIR IS AS FAR APART AS THE GREEN FAMILY GETS. #166534 sits exactly on the
+// lightness band's floor (L 0.43) and #22c55e near its ceiling — every darker
+// green (#14532d, ΔE 34.6) and every lighter one (#4ade80, ΔE 36.0) scores better
+// on paper and FAILS the band, where a colour stops holding its hue and starts
+// reading as black or as wash. Do not "improve" this by grabbing the higher ΔE.
+//
+// The checker WARNs that #22c55e is 2.13:1 on the plate surface, which it allows
+// only with "visible labels or a table view". Both are present: the name is on
+// the well and the name fields are listed under the plate.
+// ============================================================
+const SAMPLE_GREENS = ["#22c55e", "#166534"];
+
+// Same green, as a translucent fill. The BORDER alone was too quiet to read at a
+// glance (3px of hue on a cell that already carries an OD shade underneath), so
+// the group's colour tints the whole well and the border sharpens it.
+function withAlpha(hex, a) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+}
+function rgbaToRgb(css) {
+  const [r, g, b] = css.match(/[\d.]+/g).map(Number);
+  return { r, g, b };
+}
+// What `over` at `a` alpha actually leaves on top of `base`.
+function blend(base, over, a) {
+  return {
+    r: base.r * (1 - a) + over.r * a,
+    g: base.g * (1 - a) + over.g * a,
+    b: base.b * (1 - a) + over.b * a,
+  };
+}
+// Perceived lightness, 0..1. Enough to choose ink; not a WCAG contrast figure.
+function luminance({ r, g, b }) {
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+}
+
+// well -> its group's green. Built once per redraw; cheap, and it keeps the
+// checkerboard rule in exactly one place.
+function sampleShades() {
+  const m = new Map();
+  for (const g of sampleBlocks(state.wells, state.replicates)) {
+    const shade = SAMPLE_GREENS[(g.row + g.block) % SAMPLE_GREENS.length];
+    for (const w of g.wells) m.set(w, shade);
+  }
+  return m;
+}
 // Translucent fills so a tagged well visibly "fills in" with its role color
 // (purple for standards) instead of only getting a thin outline.
 const ROLE_FILL = {
@@ -1613,7 +1838,7 @@ const ROLE_FILL = {
 // palest wells, so a block pasted one row off, or rotated, is obvious at a glance
 // rather than being arithmetic you have to check. The shading is a readability
 // aid, not data — nothing samples these pixels.
-function drawODPlate() {
+function drawODPlate(shades) {
   ctx.fillStyle = "#f6f7fb";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -1642,16 +1867,30 @@ function drawODPlate() {
 
     roundRect(ctx, x, y, cw, ch, 8);
 
+    // `paint` follows what is ACTUALLY on the cell, layer by layer, so the text
+    // colour below is computed from the real thing instead of inferred from the
+    // OD. It used to key off `t > 0.62` — fine when every sample wore one flat
+    // green, wrong the moment a DARK group green started darkening a cell without
+    // touching its OD.
+    let paint = { r: 236, g: 238, b: 243 };
     if (has) {
       const t = (w.reading - min) / span;
-      const { r, g, b } = odCellColor(t);
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      paint = odCellColor(t);
+      ctx.fillStyle = `rgb(${paint.r},${paint.g},${paint.b})`;
       ctx.fill();
-      if (ROLE_FILL[w.role]) {
-        // Lighter than the photo path's fill: here it must tint the cell without
-        // burying the OD shading underneath, which is doing real work.
+      // A sample is tinted with ITS GROUP's green so neighbouring samples read
+      // apart at a glance; other roles keep their flat role tint. Kept light
+      // either way: it must tint the cell without burying the OD shading
+      // underneath, which is doing real work.
+      const groupGreen = shades.get(w);
+      if (groupGreen) {
+        ctx.fillStyle = withAlpha(groupGreen, 0.34);
+        ctx.fill();
+        paint = blend(paint, hexToRgb(groupGreen), 0.34);
+      } else if (ROLE_FILL[w.role]) {
         ctx.fillStyle = ROLE_FILL[w.role].replace(/[\d.]+\)$/, "0.3)");
         ctx.fill();
+        paint = blend(paint, rgbaToRgb(ROLE_FILL[w.role]), 0.3);
       }
     } else {
       // A well the block never covered. Visibly not a plate well, so it reads as
@@ -1660,22 +1899,27 @@ function drawODPlate() {
       ctx.fill();
     }
 
-    ctx.strokeStyle = has ? (ROLE_COLOR[w.role] || "#cbd0dc") : "#e2e5ec";
+    // A sample's border is its GROUP's green, so where one sample ends and the
+    // next begins is visible without reading the labels. Everything else keeps
+    // its role colour.
+    ctx.strokeStyle = has
+      ? (shades.get(w) || ROLE_COLOR[w.role] || "#cbd0dc")
+      : "#e2e5ec";
     ctx.lineWidth = w.role === "unused" ? 1.5 : 3;
     ctx.stroke();
 
     if (!has) continue;
 
     // Well name, small and quiet in the corner. The OD is the thing being read.
-    ctx.fillStyle = "rgba(30, 35, 50, 0.5)";
+    ctx.fillStyle = luminance(paint) < 0.55 ? "rgba(255,255,255,0.7)" : "rgba(30, 35, 50, 0.5)";
     ctx.font = "600 11px system-ui";
     ctx.textAlign = "left";
     ctx.fillText(w.name, x + 8, y + 12);
 
     // The reading itself: mono + tabular, the same contract as the results
     // tables, because this is a number that gets read as data.
-    const t = (w.reading - min) / span;
-    ctx.fillStyle = t > 0.62 ? "#ffffff" : "#1e2332";
+    const dark = luminance(paint) < 0.55; // is the cell dark enough to need light ink?
+    ctx.fillStyle = dark ? "#ffffff" : "#1e2332";
     ctx.font = '500 17px "JetBrains Mono", ui-monospace, monospace';
     ctx.textAlign = "center";
     ctx.fillText(w.reading.toFixed(3), w.x, w.y + 6);
@@ -1683,7 +1927,7 @@ function drawODPlate() {
     // What the row field named it — the ladder rung or the sample name. Without
     // this, tagging 8 rows of a ladder is a memory test.
     if (w.label) {
-      ctx.fillStyle = t > 0.62 ? "rgba(255,255,255,0.85)" : "rgba(30, 35, 50, 0.62)";
+      ctx.fillStyle = dark ? "rgba(255,255,255,0.85)" : "rgba(30, 35, 50, 0.62)";
       ctx.font = "600 11px system-ui";
       ctx.fillText(String(w.label).slice(0, 12), w.x, y + ch - 9);
     }
@@ -1693,9 +1937,12 @@ function drawODPlate() {
 }
 
 function redraw() {
+  // One pass over the groups, shared by both renderers.
+  const shades = sampleShades();
+
   // The OD path has no source image — the plate is drawn, not photographed.
   if (state.source === "od") {
-    drawODPlate();
+    drawODPlate(shades);
     drawSelectionBox();
     return;
   }
@@ -1726,11 +1973,15 @@ function redraw() {
   for (const w of state.wells) {
     ctx.beginPath();
     ctx.arc(w.x, w.y, state.wellRadius, 0, Math.PI * 2);
-    if (roleFill[w.role]) {
+    const groupGreen = shades.get(w);
+    if (groupGreen) {
+      ctx.fillStyle = withAlpha(groupGreen, 0.5);
+      ctx.fill();
+    } else if (roleFill[w.role]) {
       ctx.fillStyle = roleFill[w.role];
       ctx.fill();
     }
-    ctx.strokeStyle = roleColor[w.role] || roleColor.unused;
+    ctx.strokeStyle = shades.get(w) || roleColor[w.role] || roleColor.unused;
     ctx.lineWidth = w.role === "unused" ? 1 : Math.max(2, state.naturalW / 400);
     ctx.stroke();
     // Well name (A1..H12) centered in the circle. White fill with a dark outline
